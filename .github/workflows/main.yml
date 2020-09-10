@@ -1,0 +1,14 @@
+on: [push]
+
+jobs:
+  post_openapi_docs:
+    runs-on: ubuntu-latest
+    name: Post the OpenAPI docs to the PR in a comment
+    steps:
+      - name: Hello world action step
+        id: post_openid
+        uses: actions/openapi-docs-in-pr-action
+        with:
+          who-to-greet: 'Blake the Snake'
+      - name: Get the output time
+        run: echo "The time was ${{ steps.post_openid.outputs.time }}"
