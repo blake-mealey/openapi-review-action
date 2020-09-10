@@ -1,13 +1,9 @@
 name: OpenAPI Docs in PR
 description: View your OpenAPI Docs as a comment in your PR
 inputs:
-  who-to-greet: # id of input
-    description: 'Who to greet'
+  spec-path:
+    description: The path to the OpenAPI spec to process
     required: true
-    default: 'World'
-outputs:
-  time: # id of output
-    description: 'The time we greeted you'
 runs:
   using: node12
   main: dist/index.js
