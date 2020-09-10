@@ -7,7 +7,7 @@ jobs:
     steps:
       - name: Hello world action step
         id: post_openid
-        uses: actions/openapi-docs-in-pr-action
+        uses: blake-mealey/openapi-docs-in-pr-action
         with:
           who-to-greet: 'Blake the Snake'
       - name: Get the output time
