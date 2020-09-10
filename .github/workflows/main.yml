@@ -7,6 +7,6 @@ jobs:
     steps:
       - name: Post OpenAPI docs
         id: post_openid
-        uses: blake-mealey/openapi-docs-in-pr-action@v0.0.1
+        uses: blake-mealey/openapi-docs-in-pr-action@master
         with:
           spec-path: fixtures/api-with-examples.yaml
