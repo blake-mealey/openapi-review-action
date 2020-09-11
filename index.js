@@ -16,9 +16,20 @@ const main = async () => {
 
   console.log('context:', github.context);
 
+  const { pull_request: pullRequest } = github.context.payload;
+
+  if (!pullRequest) {
+    // TODO: Find the PR another way
+    return;
+  }
+
   const githubToken = core.getInput('github-token');
-  console.log('token:', githubToken);
-  //github.getOctokit(githubToken).pulls.createReviewComment({});
+
+  github.getOctokit(githubToken).issues.createComment({
+    ...github.context.repo,
+    issue_number: pullRequest.number,
+    body: docs,
+  });
 };
 
 main().catch((err) => core.setFailed(err.message));
