@@ -9,7 +9,7 @@ jobs:
         uses: actions/checkout@v1
       - name: Post OpenAPI docs
         id: post_openid
-        uses: blake-mealey/openapi-docs-in-pr-action@master
+        uses: ./
         with:
           spec-path: ./fixtures/api-with-examples.yaml
           github-token: ${{ secrets.GITHUB_TOKEN }}
