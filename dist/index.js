@@ -143,7 +143,52 @@ module.exports.info = {
 /***/ }),
 /* 7 */,
 /* 8 */,
-/* 9 */,
+/* 9 */
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+"use strict";
+
+
+
+var loader = __webpack_require__(457);
+var dumper = __webpack_require__(685);
+
+
+function deprecated(name) {
+  return function () {
+    throw new Error('Function ' + name + ' is deprecated and cannot be used.');
+  };
+}
+
+
+module.exports.Type                = __webpack_require__(945);
+module.exports.Schema              = __webpack_require__(43);
+module.exports.FAILSAFE_SCHEMA     = __webpack_require__(581);
+module.exports.JSON_SCHEMA         = __webpack_require__(23);
+module.exports.CORE_SCHEMA         = __webpack_require__(611);
+module.exports.DEFAULT_SAFE_SCHEMA = __webpack_require__(723);
+module.exports.DEFAULT_FULL_SCHEMA = __webpack_require__(910);
+module.exports.load                = loader.load;
+module.exports.loadAll             = loader.loadAll;
+module.exports.safeLoad            = loader.safeLoad;
+module.exports.safeLoadAll         = loader.safeLoadAll;
+module.exports.dump                = dumper.dump;
+module.exports.safeDump            = dumper.safeDump;
+module.exports.YAMLException       = __webpack_require__(556);
+
+// Deprecated schema names from JS-YAML 2.0.x
+module.exports.MINIMAL_SCHEMA = __webpack_require__(581);
+module.exports.SAFE_SCHEMA    = __webpack_require__(723);
+module.exports.DEFAULT_SCHEMA = __webpack_require__(910);
+
+// Deprecated functions from JS-YAML 1.x.x
+module.exports.scan           = deprecated('scan');
+module.exports.parse          = deprecated('parse');
+module.exports.compose        = deprecated('compose');
+module.exports.addConstructor = deprecated('addConstructor');
+
+
+/***/ }),
 /* 10 */,
 /* 11 */
 /***/ (function(module) {
@@ -266,7 +311,38 @@ module.exports = eval("require")("encoding");
 /* 20 */,
 /* 21 */,
 /* 22 */,
-/* 23 */,
+/* 23 */
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+"use strict";
+// Standard YAML's JSON schema.
+// http://www.yaml.org/spec/1.2/spec.html#id2803231
+//
+// NOTE: JS-YAML does not support schema-specific tag resolution restrictions.
+// So, this schema is not such strict as defined in the YAML specification.
+// It allows numbers in binary notaion, use `Null` and `NULL` as `null`, etc.
+
+
+
+
+
+var Schema = __webpack_require__(43);
+
+
+module.exports = new Schema({
+  include: [
+    __webpack_require__(581)
+  ],
+  implicit: [
+    __webpack_require__(809),
+    __webpack_require__(228),
+    __webpack_require__(44),
+    __webpack_require__(417)
+  ]
+});
+
+
+/***/ }),
 /* 24 */,
 /* 25 */
 /***/ (function(module, exports, __webpack_require__) {
@@ -597,34 +673,300 @@ module.exports = {"$id":"har.json#","$schema":"http://json-schema.org/draft-06/s
 /***/ }),
 /* 42 */,
 /* 43 */
-/***/ (function(module) {
+/***/ (function(module, __unusedexports, __webpack_require__) {
 
 "use strict";
-// Normalize input string
 
 
+/*eslint-disable max-len*/
+
+var common        = __webpack_require__(740);
+var YAMLException = __webpack_require__(556);
+var Type          = __webpack_require__(945);
 
 
-// https://spec.commonmark.org/0.29/#line-ending
-var NEWLINES_RE  = /\r\n?|\n/g;
-var NULL_RE      = /\0/g;
+function compileList(schema, name, result) {
+  var exclude = [];
+
+  schema.include.forEach(function (includedSchema) {
+    result = compileList(includedSchema, name, result);
+  });
+
+  schema[name].forEach(function (currentType) {
+    result.forEach(function (previousType, previousIndex) {
+      if (previousType.tag === currentType.tag && previousType.kind === currentType.kind) {
+        exclude.push(previousIndex);
+      }
+    });
+
+    result.push(currentType);
+  });
+
+  return result.filter(function (type, index) {
+    return exclude.indexOf(index) === -1;
+  });
+}
 
 
-module.exports = function normalize(state) {
-  var str;
+function compileMap(/* lists... */) {
+  var result = {
+        scalar: {},
+        sequence: {},
+        mapping: {},
+        fallback: {}
+      }, index, length;
 
-  // Normalize newlines
-  str = state.src.replace(NEWLINES_RE, '\n');
+  function collectType(type) {
+    result[type.kind][type.tag] = result['fallback'][type.tag] = type;
+  }
 
-  // Replace NULL characters
-  str = str.replace(NULL_RE, '\uFFFD');
+  for (index = 0, length = arguments.length; index < length; index += 1) {
+    arguments[index].forEach(collectType);
+  }
+  return result;
+}
 
-  state.src = str;
+
+function Schema(definition) {
+  this.include  = definition.include  || [];
+  this.implicit = definition.implicit || [];
+  this.explicit = definition.explicit || [];
+
+  this.implicit.forEach(function (type) {
+    if (type.loadKind && type.loadKind !== 'scalar') {
+      throw new YAMLException('There is a non-scalar type in the implicit list of a schema. Implicit resolving of such types is not supported.');
+    }
+  });
+
+  this.compiledImplicit = compileList(this, 'implicit', []);
+  this.compiledExplicit = compileList(this, 'explicit', []);
+  this.compiledTypeMap  = compileMap(this.compiledImplicit, this.compiledExplicit);
+}
+
+
+Schema.DEFAULT = null;
+
+
+Schema.create = function createSchema() {
+  var schemas, types;
+
+  switch (arguments.length) {
+    case 1:
+      schemas = Schema.DEFAULT;
+      types = arguments[0];
+      break;
+
+    case 2:
+      schemas = arguments[0];
+      types = arguments[1];
+      break;
+
+    default:
+      throw new YAMLException('Wrong number of arguments for Schema.create function');
+  }
+
+  schemas = common.toArray(schemas);
+  types = common.toArray(types);
+
+  if (!schemas.every(function (schema) { return schema instanceof Schema; })) {
+    throw new YAMLException('Specified list of super schemas (or a single Schema object) contains a non-Schema object.');
+  }
+
+  if (!types.every(function (type) { return type instanceof Type; })) {
+    throw new YAMLException('Specified list of YAML types (or a single Type object) contains a non-Type object.');
+  }
+
+  return new Schema({
+    include: schemas,
+    explicit: types
+  });
 };
 
 
+module.exports = Schema;
+
+
 /***/ }),
-/* 44 */,
+/* 44 */
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+"use strict";
+
+
+var common = __webpack_require__(740);
+var Type   = __webpack_require__(945);
+
+function isHexCode(c) {
+  return ((0x30/* 0 */ <= c) && (c <= 0x39/* 9 */)) ||
+         ((0x41/* A */ <= c) && (c <= 0x46/* F */)) ||
+         ((0x61/* a */ <= c) && (c <= 0x66/* f */));
+}
+
+function isOctCode(c) {
+  return ((0x30/* 0 */ <= c) && (c <= 0x37/* 7 */));
+}
+
+function isDecCode(c) {
+  return ((0x30/* 0 */ <= c) && (c <= 0x39/* 9 */));
+}
+
+function resolveYamlInteger(data) {
+  if (data === null) return false;
+
+  var max = data.length,
+      index = 0,
+      hasDigits = false,
+      ch;
+
+  if (!max) return false;
+
+  ch = data[index];
+
+  // sign
+  if (ch === '-' || ch === '+') {
+    ch = data[++index];
+  }
+
+  if (ch === '0') {
+    // 0
+    if (index + 1 === max) return true;
+    ch = data[++index];
+
+    // base 2, base 8, base 16
+
+    if (ch === 'b') {
+      // base 2
+      index++;
+
+      for (; index < max; index++) {
+        ch = data[index];
+        if (ch === '_') continue;
+        if (ch !== '0' && ch !== '1') return false;
+        hasDigits = true;
+      }
+      return hasDigits && ch !== '_';
+    }
+
+
+    if (ch === 'x') {
+      // base 16
+      index++;
+
+      for (; index < max; index++) {
+        ch = data[index];
+        if (ch === '_') continue;
+        if (!isHexCode(data.charCodeAt(index))) return false;
+        hasDigits = true;
+      }
+      return hasDigits && ch !== '_';
+    }
+
+    // base 8
+    for (; index < max; index++) {
+      ch = data[index];
+      if (ch === '_') continue;
+      if (!isOctCode(data.charCodeAt(index))) return false;
+      hasDigits = true;
+    }
+    return hasDigits && ch !== '_';
+  }
+
+  // base 10 (except 0) or base 60
+
+  // value should not start with `_`;
+  if (ch === '_') return false;
+
+  for (; index < max; index++) {
+    ch = data[index];
+    if (ch === '_') continue;
+    if (ch === ':') break;
+    if (!isDecCode(data.charCodeAt(index))) {
+      return false;
+    }
+    hasDigits = true;
+  }
+
+  // Should have digits and should not end with `_`
+  if (!hasDigits || ch === '_') return false;
+
+  // if !base60 - done;
+  if (ch !== ':') return true;
+
+  // base60 almost not used, no needs to optimize
+  return /^(:[0-5]?[0-9])+$/.test(data.slice(index));
+}
+
+function constructYamlInteger(data) {
+  var value = data, sign = 1, ch, base, digits = [];
+
+  if (value.indexOf('_') !== -1) {
+    value = value.replace(/_/g, '');
+  }
+
+  ch = value[0];
+
+  if (ch === '-' || ch === '+') {
+    if (ch === '-') sign = -1;
+    value = value.slice(1);
+    ch = value[0];
+  }
+
+  if (value === '0') return 0;
+
+  if (ch === '0') {
+    if (value[1] === 'b') return sign * parseInt(value.slice(2), 2);
+    if (value[1] === 'x') return sign * parseInt(value, 16);
+    return sign * parseInt(value, 8);
+  }
+
+  if (value.indexOf(':') !== -1) {
+    value.split(':').forEach(function (v) {
+      digits.unshift(parseInt(v, 10));
+    });
+
+    value = 0;
+    base = 1;
+
+    digits.forEach(function (d) {
+      value += (d * base);
+      base *= 60;
+    });
+
+    return sign * value;
+
+  }
+
+  return sign * parseInt(value, 10);
+}
+
+function isInteger(object) {
+  return (Object.prototype.toString.call(object)) === '[object Number]' &&
+         (object % 1 === 0 && !common.isNegativeZero(object));
+}
+
+module.exports = new Type('tag:yaml.org,2002:int', {
+  kind: 'scalar',
+  resolve: resolveYamlInteger,
+  construct: constructYamlInteger,
+  predicate: isInteger,
+  represent: {
+    binary:      function (obj) { return obj >= 0 ? '0b' + obj.toString(2) : '-0b' + obj.toString(2).slice(1); },
+    octal:       function (obj) { return obj >= 0 ? '0'  + obj.toString(8) : '-0'  + obj.toString(8).slice(1); },
+    decimal:     function (obj) { return obj.toString(10); },
+    /* eslint-disable max-len */
+    hexadecimal: function (obj) { return obj >= 0 ? '0x' + obj.toString(16).toUpperCase() :  '-0x' + obj.toString(16).toUpperCase().slice(1); }
+  },
+  defaultStyle: 'decimal',
+  styleAliases: {
+    binary:      [ 2,  'bin' ],
+    octal:       [ 8,  'oct' ],
+    decimal:     [ 10, 'dec' ],
+    hexadecimal: [ 16, 'hex' ]
+  }
+});
+
+
+/***/ }),
 /* 45 */
 /***/ (function(module, __unusedexports, __webpack_require__) {
 
@@ -632,7 +974,7 @@ module.exports = function normalize(state) {
 
 
 var IDENTIFIER = /^[a-z_$][a-z0-9_$-]*$/i;
-var customRuleCode = __webpack_require__(187);
+var customRuleCode = __webpack_require__(276);
 var definitionSchema = __webpack_require__(952);
 
 module.exports = {
@@ -1115,7 +1457,7 @@ module.exports = {
 //
 
 
-var Token = __webpack_require__(377);
+var Token = __webpack_require__(423);
 
 
 function StateCore(src, md, env) {
@@ -4917,43 +5259,97 @@ exports.enable(load());
 
 /***/ }),
 /* 82 */
-/***/ (function(module) {
+/***/ (function(module, __unusedexports, __webpack_require__) {
 
 "use strict";
-// Code block (4 spaces padded)
 
 
+var Type = __webpack_require__(945);
 
+var YAML_DATE_REGEXP = new RegExp(
+  '^([0-9][0-9][0-9][0-9])'          + // [1] year
+  '-([0-9][0-9])'                    + // [2] month
+  '-([0-9][0-9])$');                   // [3] day
 
-module.exports = function code(state, startLine, endLine/*, silent*/) {
-  var nextLine, last, token;
+var YAML_TIMESTAMP_REGEXP = new RegExp(
+  '^([0-9][0-9][0-9][0-9])'          + // [1] year
+  '-([0-9][0-9]?)'                   + // [2] month
+  '-([0-9][0-9]?)'                   + // [3] day
+  '(?:[Tt]|[ \\t]+)'                 + // ...
+  '([0-9][0-9]?)'                    + // [4] hour
+  ':([0-9][0-9])'                    + // [5] minute
+  ':([0-9][0-9])'                    + // [6] second
+  '(?:\\.([0-9]*))?'                 + // [7] fraction
+  '(?:[ \\t]*(Z|([-+])([0-9][0-9]?)' + // [8] tz [9] tz_sign [10] tz_hour
+  '(?::([0-9][0-9]))?))?$');           // [11] tz_minute
 
-  if (state.sCount[startLine] - state.blkIndent < 4) { return false; }
+function resolveYamlTimestamp(data) {
+  if (data === null) return false;
+  if (YAML_DATE_REGEXP.exec(data) !== null) return true;
+  if (YAML_TIMESTAMP_REGEXP.exec(data) !== null) return true;
+  return false;
+}
 
-  last = nextLine = startLine + 1;
+function constructYamlTimestamp(data) {
+  var match, year, month, day, hour, minute, second, fraction = 0,
+      delta = null, tz_hour, tz_minute, date;
 
-  while (nextLine < endLine) {
-    if (state.isEmpty(nextLine)) {
-      nextLine++;
-      continue;
-    }
+  match = YAML_DATE_REGEXP.exec(data);
+  if (match === null) match = YAML_TIMESTAMP_REGEXP.exec(data);
 
-    if (state.sCount[nextLine] - state.blkIndent >= 4) {
-      nextLine++;
-      last = nextLine;
-      continue;
-    }
-    break;
+  if (match === null) throw new Error('Date resolve error');
+
+  // match: [1] year [2] month [3] day
+
+  year = +(match[1]);
+  month = +(match[2]) - 1; // JS month starts with 0
+  day = +(match[3]);
+
+  if (!match[4]) { // no hour
+    return new Date(Date.UTC(year, month, day));
   }
 
-  state.line = last;
+  // match: [4] hour [5] minute [6] second [7] fraction
 
-  token         = state.push('code_block', 'code', 0);
-  token.content = state.getLines(startLine, last, 4 + state.blkIndent, true);
-  token.map     = [ startLine, state.line ];
+  hour = +(match[4]);
+  minute = +(match[5]);
+  second = +(match[6]);
 
-  return true;
-};
+  if (match[7]) {
+    fraction = match[7].slice(0, 3);
+    while (fraction.length < 3) { // milli-seconds
+      fraction += '0';
+    }
+    fraction = +fraction;
+  }
+
+  // match: [8] tz [9] tz_sign [10] tz_hour [11] tz_minute
+
+  if (match[9]) {
+    tz_hour = +(match[10]);
+    tz_minute = +(match[11] || 0);
+    delta = (tz_hour * 60 + tz_minute) * 60000; // delta in mili-seconds
+    if (match[9] === '-') delta = -delta;
+  }
+
+  date = new Date(Date.UTC(year, month, day, hour, minute, second, fraction));
+
+  if (delta) date.setTime(date.getTime() - delta);
+
+  return date;
+}
+
+function representYamlTimestamp(object /*, style*/) {
+  return object.toISOString();
+}
+
+module.exports = new Type('tag:yaml.org,2002:timestamp', {
+  kind: 'scalar',
+  resolve: resolveYamlTimestamp,
+  construct: constructYamlTimestamp,
+  instanceOf: Date,
+  represent: representYamlTimestamp
+});
 
 
 /***/ }),
@@ -5443,7 +5839,89 @@ function serial(list, iterator, callback)
 
 /***/ }),
 /* 92 */,
-/* 93 */,
+/* 93 */
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+"use strict";
+
+
+
+var common = __webpack_require__(740);
+
+
+function Mark(name, buffer, position, line, column) {
+  this.name     = name;
+  this.buffer   = buffer;
+  this.position = position;
+  this.line     = line;
+  this.column   = column;
+}
+
+
+Mark.prototype.getSnippet = function getSnippet(indent, maxLength) {
+  var head, start, tail, end, snippet;
+
+  if (!this.buffer) return null;
+
+  indent = indent || 4;
+  maxLength = maxLength || 75;
+
+  head = '';
+  start = this.position;
+
+  while (start > 0 && '\x00\r\n\x85\u2028\u2029'.indexOf(this.buffer.charAt(start - 1)) === -1) {
+    start -= 1;
+    if (this.position - start > (maxLength / 2 - 1)) {
+      head = ' ... ';
+      start += 5;
+      break;
+    }
+  }
+
+  tail = '';
+  end = this.position;
+
+  while (end < this.buffer.length && '\x00\r\n\x85\u2028\u2029'.indexOf(this.buffer.charAt(end)) === -1) {
+    end += 1;
+    if (end - this.position > (maxLength / 2 - 1)) {
+      tail = ' ... ';
+      end -= 5;
+      break;
+    }
+  }
+
+  snippet = this.buffer.slice(start, end);
+
+  return common.repeat(' ', indent) + head + snippet + tail + '\n' +
+         common.repeat(' ', indent + this.position - start + head.length) + '^';
+};
+
+
+Mark.prototype.toString = function toString(compact) {
+  var snippet, where = '';
+
+  if (this.name) {
+    where += 'in "' + this.name + '" ';
+  }
+
+  where += 'at line ' + (this.line + 1) + ', column ' + (this.column + 1);
+
+  if (!compact) {
+    snippet = this.getSnippet();
+
+    if (snippet) {
+      where += ':\n' + snippet;
+    }
+  }
+
+  return where;
+};
+
+
+module.exports = Mark;
+
+
+/***/ }),
 /* 94 */,
 /* 95 */
 /***/ (function(module, __unusedexports, __webpack_require__) {
@@ -5773,7 +6251,7 @@ var Ruler           = __webpack_require__(725);
 // Parser rules
 
 var _rules = [
-  [ 'text',            __webpack_require__(362) ],
+  [ 'text',            __webpack_require__(288) ],
   [ 'newline',         __webpack_require__(701) ],
   [ 'escape',          __webpack_require__(366) ],
   [ 'backticks',       __webpack_require__(209) ],
@@ -5938,7 +6416,42 @@ module.exports = ParserInline;
 
 
 /***/ }),
-/* 100 */,
+/* 100 */
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+"use strict";
+
+
+var Type = __webpack_require__(945);
+
+var _hasOwnProperty = Object.prototype.hasOwnProperty;
+
+function resolveYamlSet(data) {
+  if (data === null) return true;
+
+  var key, object = data;
+
+  for (key in object) {
+    if (_hasOwnProperty.call(object, key)) {
+      if (object[key] !== null) return false;
+    }
+  }
+
+  return true;
+}
+
+function constructYamlSet(data) {
+  return data !== null ? data : {};
+}
+
+module.exports = new Type('tag:yaml.org,2002:set', {
+  kind: 'mapping',
+  resolve: resolveYamlSet,
+  construct: constructYamlSet
+});
+
+
+/***/ }),
 /* 101 */
 /***/ (function(module, __unusedexports, __webpack_require__) {
 
@@ -6003,21 +6516,43 @@ const { promises: fs } = __webpack_require__(747);
 
 const core = __webpack_require__(470);
 const github = __webpack_require__(469);
+const yaml = __webpack_require__(414);
 
 const converter = __webpack_require__(56);
 
-const main = async () => {
-  const specPath = core.getInput('spec-path');
+const parsers = [
+  {
+    extensions: ['.json'],
+    parse: (str) => JSON.parse(str),
+  },
+  {
+    extensions: ['.yaml', '.yml'],
+    parse: (str) => yaml.safeLoad(str),
+  },
+];
 
-  const spec = JSON.parse(await fs.readFile(specPath, 'utf-8'));
+async function parseFile(specPath) {
+  const data = await fs.readFile(specPath, 'utf-8');
+
+  const ext = path.extname(specPath);
+  const parser = parsers.find(({ extensions }) => extensions.includes(ext));
+  if (!parser) {
+    throw new Error(`Unkown file extension ${ext}`);
+  }
+
+  return parser.parse(data);
+}
+
+async function main() {
+  const spec = await parseFile(core.getInput('spec-path'));
 
   let docs = await converter.convert(spec, {});
+
+  // TODO: Use remark to modify the document in a more robust way
   docs = docs.substring(docs.indexOf('---', 3) + 3);
   docs = docs.replace(/> Scroll down for code samples.*/g, '');
 
   console.log('\n' + docs + '\n');
-
-  console.log('context:', github.context);
 
   const { pull_request: pullRequest } = github.context.payload;
 
@@ -6026,14 +6561,12 @@ const main = async () => {
     return;
   }
 
-  const githubToken = core.getInput('github-token');
-
-  github.getOctokit(githubToken).issues.createComment({
+  github.getOctokit(core.getInput('github-token')).issues.createComment({
     ...github.context.repo,
     issue_number: pullRequest.number,
     body: docs,
   });
-};
+}
 
 main().catch((err) => core.setFailed(err.message));
 
@@ -9250,9 +9783,54 @@ module.exports.info = {
 
 /***/ }),
 /* 181 */
-/***/ (function(module) {
+/***/ (function(module, __unusedexports, __webpack_require__) {
 
-module.exports = {"$id":"pageTimings.json#","$schema":"http://json-schema.org/draft-06/schema#","type":"object","properties":{"onContentLoad":{"type":"number","min":-1},"onLoad":{"type":"number","min":-1},"comment":{"type":"string"}}};
+"use strict";
+
+
+var Type = __webpack_require__(945);
+
+var _hasOwnProperty = Object.prototype.hasOwnProperty;
+var _toString       = Object.prototype.toString;
+
+function resolveYamlOmap(data) {
+  if (data === null) return true;
+
+  var objectKeys = [], index, length, pair, pairKey, pairHasKey,
+      object = data;
+
+  for (index = 0, length = object.length; index < length; index += 1) {
+    pair = object[index];
+    pairHasKey = false;
+
+    if (_toString.call(pair) !== '[object Object]') return false;
+
+    for (pairKey in pair) {
+      if (_hasOwnProperty.call(pair, pairKey)) {
+        if (!pairHasKey) pairHasKey = true;
+        else return false;
+      }
+    }
+
+    if (!pairHasKey) return false;
+
+    if (objectKeys.indexOf(pairKey) === -1) objectKeys.push(pairKey);
+    else return false;
+  }
+
+  return true;
+}
+
+function constructYamlOmap(data) {
+  return data !== null ? data : [];
+}
+
+module.exports = new Type('tag:yaml.org,2002:omap', {
+  kind: 'sequence',
+  resolve: resolveYamlOmap,
+  construct: constructYamlOmap
+});
+
 
 /***/ }),
 /* 182 */,
@@ -9365,236 +9943,161 @@ module.exports = function fence(state, startLine, endLine, silent) {
 /* 185 */,
 /* 186 */,
 /* 187 */
-/***/ (function(module) {
+/***/ (function(module, __unusedexports, __webpack_require__) {
 
 "use strict";
 
-module.exports = function generate_custom(it, $keyword, $ruleType) {
-  var out = ' ';
-  var $lvl = it.level;
-  var $dataLvl = it.dataLevel;
-  var $schema = it.schema[$keyword];
-  var $schemaPath = it.schemaPath + it.util.getProperty($keyword);
-  var $errSchemaPath = it.errSchemaPath + '/' + $keyword;
-  var $breakOnError = !it.opts.allErrors;
-  var $errorKeyword;
-  var $data = 'data' + ($dataLvl || '');
-  var $valid = 'valid' + $lvl;
-  var $errs = 'errs__' + $lvl;
-  var $isData = it.opts.$data && $schema && $schema.$data,
-    $schemaValue;
-  if ($isData) {
-    out += ' var schema' + ($lvl) + ' = ' + (it.util.getData($schema.$data, $dataLvl, it.dataPathArr)) + '; ';
-    $schemaValue = 'schema' + $lvl;
+
+var CodeBuilder = __webpack_require__(193)
+
+function getDecompressionMethods (source) {
+  var acceptEncoding = source.allHeaders['accept-encoding']
+  if (!acceptEncoding) {
+    return [] // no decompression
+  }
+
+  var supportedMethods = {
+    gzip: 'DecompressionMethods.GZip',
+    deflate: 'DecompressionMethods.Deflate'
+  }
+  var methods = []
+  acceptEncoding.split(',').forEach(function (encoding) {
+    var match = /\s*([^;\s]+)/.exec(encoding)
+    if (match) {
+      var method = supportedMethods[match[1]]
+      if (method) {
+        methods.push(method)
+      }
+    }
+  })
+
+  return methods
+}
+
+module.exports = function (source, options) {
+  var indentation = '    '
+  var code = new CodeBuilder(indentation)
+
+  var clienthandler = ''
+  var cookies = !!source.allHeaders.cookie
+  var decompressionMethods = getDecompressionMethods(source)
+  if (cookies || decompressionMethods.length) {
+    clienthandler = 'clientHandler'
+    code.push('var clientHandler = new HttpClientHandler')
+    code.push('{')
+    if (cookies) {
+      // enable setting the cookie header
+      code.push(1, 'UseCookies = false,')
+    }
+    if (decompressionMethods.length) {
+      // enable decompression for supported methods
+      code.push(1, 'AutomaticDecompression = %s,', decompressionMethods.join(' | '))
+    }
+    code.push('};')
+  }
+
+  code.push('var client = new HttpClient(%s);', clienthandler)
+
+  code.push('var request = new HttpRequestMessage')
+  code.push('{')
+
+  var methods = [ 'GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS', 'TRACE' ]
+  var method = source.method.toUpperCase()
+  if (method && (methods.indexOf(method) !== -1)) {
+    // buildin method
+    method = `HttpMethod.${method[0]}${method.substring(1).toLowerCase()}`
   } else {
-    $schemaValue = $schema;
+    // custom method
+    method = `new HttpMethod("${method}")`
   }
-  var $rule = this,
-    $definition = 'definition' + $lvl,
-    $rDef = $rule.definition,
-    $closingBraces = '';
-  var $compile, $inline, $macro, $ruleValidate, $validateCode;
-  if ($isData && $rDef.$data) {
-    $validateCode = 'keywordValidate' + $lvl;
-    var $validateSchema = $rDef.validateSchema;
-    out += ' var ' + ($definition) + ' = RULES.custom[\'' + ($keyword) + '\'].definition; var ' + ($validateCode) + ' = ' + ($definition) + '.validate;';
-  } else {
-    $ruleValidate = it.useCustomRule($rule, $schema, it.schema, it);
-    if (!$ruleValidate) return;
-    $schemaValue = 'validate.schema' + $schemaPath;
-    $validateCode = $ruleValidate.code;
-    $compile = $rDef.compile;
-    $inline = $rDef.inline;
-    $macro = $rDef.macro;
+  code.push(1, 'Method = %s,', method)
+
+  code.push(1, 'RequestUri = new Uri("%s"),', source.fullUrl)
+
+  var headers = Object.keys(source.allHeaders).filter(function (header) {
+    switch (header) {
+      case 'content-type':
+      case 'content-length':
+      case 'accept-encoding':
+        // skip these headers
+        return false
+      default:
+        return true
+    }
+  })
+  if (headers.length) {
+    code.push(1, 'Headers =')
+    code.push(1, '{')
+    headers.forEach(function (key) {
+      code.push(2, '{ "%s", "%s" },', key, source.allHeaders[key])
+    })
+    code.push(1, '},')
   }
-  var $ruleErrs = $validateCode + '.errors',
-    $i = 'i' + $lvl,
-    $ruleErr = 'ruleErr' + $lvl,
-    $asyncKeyword = $rDef.async;
-  if ($asyncKeyword && !it.async) throw new Error('async keyword in sync schema');
-  if (!($inline || $macro)) {
-    out += '' + ($ruleErrs) + ' = null;';
-  }
-  out += 'var ' + ($errs) + ' = errors;var ' + ($valid) + ';';
-  if ($isData && $rDef.$data) {
-    $closingBraces += '}';
-    out += ' if (' + ($schemaValue) + ' === undefined) { ' + ($valid) + ' = true; } else { ';
-    if ($validateSchema) {
-      $closingBraces += '}';
-      out += ' ' + ($valid) + ' = ' + ($definition) + '.validateSchema(' + ($schemaValue) + '); if (' + ($valid) + ') { ';
-    }
-  }
-  if ($inline) {
-    if ($rDef.statements) {
-      out += ' ' + ($ruleValidate.validate) + ' ';
-    } else {
-      out += ' ' + ($valid) + ' = ' + ($ruleValidate.validate) + '; ';
-    }
-  } else if ($macro) {
-    var $it = it.util.copy(it);
-    var $closingBraces = '';
-    $it.level++;
-    var $nextValid = 'valid' + $it.level;
-    $it.schema = $ruleValidate.validate;
-    $it.schemaPath = '';
-    var $wasComposite = it.compositeRule;
-    it.compositeRule = $it.compositeRule = true;
-    var $code = it.validate($it).replace(/validate\.schema/g, $validateCode);
-    it.compositeRule = $it.compositeRule = $wasComposite;
-    out += ' ' + ($code);
-  } else {
-    var $$outStack = $$outStack || [];
-    $$outStack.push(out);
-    out = '';
-    out += '  ' + ($validateCode) + '.call( ';
-    if (it.opts.passContext) {
-      out += 'this';
-    } else {
-      out += 'self';
-    }
-    if ($compile || $rDef.schema === false) {
-      out += ' , ' + ($data) + ' ';
-    } else {
-      out += ' , ' + ($schemaValue) + ' , ' + ($data) + ' , validate.schema' + (it.schemaPath) + ' ';
-    }
-    out += ' , (dataPath || \'\')';
-    if (it.errorPath != '""') {
-      out += ' + ' + (it.errorPath);
-    }
-    var $parentData = $dataLvl ? 'data' + (($dataLvl - 1) || '') : 'parentData',
-      $parentDataProperty = $dataLvl ? it.dataPathArr[$dataLvl] : 'parentDataProperty';
-    out += ' , ' + ($parentData) + ' , ' + ($parentDataProperty) + ' , rootData )  ';
-    var def_callRuleValidate = out;
-    out = $$outStack.pop();
-    if ($rDef.errors === false) {
-      out += ' ' + ($valid) + ' = ';
-      if ($asyncKeyword) {
-        out += 'await ';
-      }
-      out += '' + (def_callRuleValidate) + '; ';
-    } else {
-      if ($asyncKeyword) {
-        $ruleErrs = 'customErrors' + $lvl;
-        out += ' var ' + ($ruleErrs) + ' = null; try { ' + ($valid) + ' = await ' + (def_callRuleValidate) + '; } catch (e) { ' + ($valid) + ' = false; if (e instanceof ValidationError) ' + ($ruleErrs) + ' = e.errors; else throw e; } ';
-      } else {
-        out += ' ' + ($ruleErrs) + ' = null; ' + ($valid) + ' = ' + (def_callRuleValidate) + '; ';
-      }
-    }
-  }
-  if ($rDef.modifying) {
-    out += ' if (' + ($parentData) + ') ' + ($data) + ' = ' + ($parentData) + '[' + ($parentDataProperty) + '];';
-  }
-  out += '' + ($closingBraces);
-  if ($rDef.valid) {
-    if ($breakOnError) {
-      out += ' if (true) { ';
-    }
-  } else {
-    out += ' if ( ';
-    if ($rDef.valid === undefined) {
-      out += ' !';
-      if ($macro) {
-        out += '' + ($nextValid);
-      } else {
-        out += '' + ($valid);
-      }
-    } else {
-      out += ' ' + (!$rDef.valid) + ' ';
-    }
-    out += ') { ';
-    $errorKeyword = $rule.keyword;
-    var $$outStack = $$outStack || [];
-    $$outStack.push(out);
-    out = '';
-    var $$outStack = $$outStack || [];
-    $$outStack.push(out);
-    out = ''; /* istanbul ignore else */
-    if (it.createErrors !== false) {
-      out += ' { keyword: \'' + ($errorKeyword || 'custom') + '\' , dataPath: (dataPath || \'\') + ' + (it.errorPath) + ' , schemaPath: ' + (it.util.toQuotedString($errSchemaPath)) + ' , params: { keyword: \'' + ($rule.keyword) + '\' } ';
-      if (it.opts.messages !== false) {
-        out += ' , message: \'should pass "' + ($rule.keyword) + '" keyword validation\' ';
-      }
-      if (it.opts.verbose) {
-        out += ' , schema: validate.schema' + ($schemaPath) + ' , parentSchema: validate.schema' + (it.schemaPath) + ' , data: ' + ($data) + ' ';
-      }
-      out += ' } ';
-    } else {
-      out += ' {} ';
-    }
-    var __err = out;
-    out = $$outStack.pop();
-    if (!it.compositeRule && $breakOnError) {
-      /* istanbul ignore if */
-      if (it.async) {
-        out += ' throw new ValidationError([' + (__err) + ']); ';
-      } else {
-        out += ' validate.errors = [' + (__err) + ']; return false; ';
-      }
-    } else {
-      out += ' var err = ' + (__err) + ';  if (vErrors === null) vErrors = [err]; else vErrors.push(err); errors++; ';
-    }
-    var def_customError = out;
-    out = $$outStack.pop();
-    if ($inline) {
-      if ($rDef.errors) {
-        if ($rDef.errors != 'full') {
-          out += '  for (var ' + ($i) + '=' + ($errs) + '; ' + ($i) + '<errors; ' + ($i) + '++) { var ' + ($ruleErr) + ' = vErrors[' + ($i) + ']; if (' + ($ruleErr) + '.dataPath === undefined) ' + ($ruleErr) + '.dataPath = (dataPath || \'\') + ' + (it.errorPath) + '; if (' + ($ruleErr) + '.schemaPath === undefined) { ' + ($ruleErr) + '.schemaPath = "' + ($errSchemaPath) + '"; } ';
-          if (it.opts.verbose) {
-            out += ' ' + ($ruleErr) + '.schema = ' + ($schemaValue) + '; ' + ($ruleErr) + '.data = ' + ($data) + '; ';
+
+  if (source.postData.text) {
+    const contentType = source.postData.mimeType
+    switch (contentType) {
+      case 'application/x-www-form-urlencoded':
+        code.push(1, 'Content = new FormUrlEncodedContent(new Dictionary<string, string>')
+        code.push(1, '{')
+        source.postData.params.forEach(function (param) {
+          code.push(2, '{ "%s", "%s" },', param.name, param.value)
+        })
+        code.push(1, '}),')
+        break
+      case 'multipart/form-data':
+        code.push(1, 'Content = new MultipartFormDataContent')
+        code.push(1, '{')
+        source.postData.params.forEach(function (param) {
+          code.push(2, 'new StringContent(%s)', JSON.stringify(param.value || ''))
+          code.push(2, '{')
+          code.push(3, 'Headers =')
+          code.push(3, '{')
+          if (param.contentType) {
+            code.push(4, 'ContentType = new MediaTypeHeaderValue("%s"),', param.contentType)
           }
-          out += ' } ';
-        }
-      } else {
-        if ($rDef.errors === false) {
-          out += ' ' + (def_customError) + ' ';
-        } else {
-          out += ' if (' + ($errs) + ' == errors) { ' + (def_customError) + ' } else {  for (var ' + ($i) + '=' + ($errs) + '; ' + ($i) + '<errors; ' + ($i) + '++) { var ' + ($ruleErr) + ' = vErrors[' + ($i) + ']; if (' + ($ruleErr) + '.dataPath === undefined) ' + ($ruleErr) + '.dataPath = (dataPath || \'\') + ' + (it.errorPath) + '; if (' + ($ruleErr) + '.schemaPath === undefined) { ' + ($ruleErr) + '.schemaPath = "' + ($errSchemaPath) + '"; } ';
-          if (it.opts.verbose) {
-            out += ' ' + ($ruleErr) + '.schema = ' + ($schemaValue) + '; ' + ($ruleErr) + '.data = ' + ($data) + '; ';
+          code.push(4, 'ContentDisposition = new ContentDispositionHeaderValue("form-data")')
+          code.push(4, '{')
+          code.push(5, 'Name = "%s",', param.name)
+          if (param.fileName) {
+            code.push(5, 'FileName = "%s",', param.fileName)
           }
-          out += ' } } ';
-        }
-      }
-    } else if ($macro) {
-      out += '   var err =   '; /* istanbul ignore else */
-      if (it.createErrors !== false) {
-        out += ' { keyword: \'' + ($errorKeyword || 'custom') + '\' , dataPath: (dataPath || \'\') + ' + (it.errorPath) + ' , schemaPath: ' + (it.util.toQuotedString($errSchemaPath)) + ' , params: { keyword: \'' + ($rule.keyword) + '\' } ';
-        if (it.opts.messages !== false) {
-          out += ' , message: \'should pass "' + ($rule.keyword) + '" keyword validation\' ';
-        }
-        if (it.opts.verbose) {
-          out += ' , schema: validate.schema' + ($schemaPath) + ' , parentSchema: validate.schema' + (it.schemaPath) + ' , data: ' + ($data) + ' ';
-        }
-        out += ' } ';
-      } else {
-        out += ' {} ';
-      }
-      out += ';  if (vErrors === null) vErrors = [err]; else vErrors.push(err); errors++; ';
-      if (!it.compositeRule && $breakOnError) {
-        /* istanbul ignore if */
-        if (it.async) {
-          out += ' throw new ValidationError(vErrors); ';
-        } else {
-          out += ' validate.errors = vErrors; return false; ';
-        }
-      }
-    } else {
-      if ($rDef.errors === false) {
-        out += ' ' + (def_customError) + ' ';
-      } else {
-        out += ' if (Array.isArray(' + ($ruleErrs) + ')) { if (vErrors === null) vErrors = ' + ($ruleErrs) + '; else vErrors = vErrors.concat(' + ($ruleErrs) + '); errors = vErrors.length;  for (var ' + ($i) + '=' + ($errs) + '; ' + ($i) + '<errors; ' + ($i) + '++) { var ' + ($ruleErr) + ' = vErrors[' + ($i) + ']; if (' + ($ruleErr) + '.dataPath === undefined) ' + ($ruleErr) + '.dataPath = (dataPath || \'\') + ' + (it.errorPath) + ';  ' + ($ruleErr) + '.schemaPath = "' + ($errSchemaPath) + '";  ';
-        if (it.opts.verbose) {
-          out += ' ' + ($ruleErr) + '.schema = ' + ($schemaValue) + '; ' + ($ruleErr) + '.data = ' + ($data) + '; ';
-        }
-        out += ' } } else { ' + (def_customError) + ' } ';
-      }
-    }
-    out += ' } ';
-    if ($breakOnError) {
-      out += ' else { ';
+          code.push(4, '}')
+          code.push(3, '}')
+          code.push(2, '},')
+        })
+
+        code.push(1, '},')
+        break
+      default:
+        code.push(1, 'Content = new StringContent(%s)', JSON.stringify(source.postData.text || ''))
+        code.push(1, '{')
+        code.push(2, 'Headers =')
+        code.push(2, '{')
+        code.push(3, 'ContentType = new MediaTypeHeaderValue("%s")', contentType)
+        code.push(2, '}')
+        code.push(1, '}')
+        break
     }
   }
-  return out;
+  code.push('};')
+
+  // send and read response
+  code.push('using (var response = await client.SendAsync(request))')
+  code.push('{')
+  code.push(1, 'response.EnsureSuccessStatusCode();')
+  code.push(1, 'var body = await response.Content.ReadAsStringAsync();')
+  code.push(1, 'Console.WriteLine(body);')
+  code.push('}')
+
+  return code.join()
+}
+
+module.exports.info = {
+  key: 'httpclient',
+  title: 'HttpClient',
+  link: 'https://docs.microsoft.com/en-us/dotnet/api/system.net.http.httpclient',
+  description: '.NET Standard HTTP Client'
 }
 
 
@@ -11506,7 +12009,48 @@ module.exports = (val, opts, pad) => {
 
 
 /***/ }),
-/* 228 */,
+/* 228 */
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+"use strict";
+
+
+var Type = __webpack_require__(945);
+
+function resolveYamlBoolean(data) {
+  if (data === null) return false;
+
+  var max = data.length;
+
+  return (max === 4 && (data === 'true' || data === 'True' || data === 'TRUE')) ||
+         (max === 5 && (data === 'false' || data === 'False' || data === 'FALSE'));
+}
+
+function constructYamlBoolean(data) {
+  return data === 'true' ||
+         data === 'True' ||
+         data === 'TRUE';
+}
+
+function isBoolean(object) {
+  return Object.prototype.toString.call(object) === '[object Boolean]';
+}
+
+module.exports = new Type('tag:yaml.org,2002:bool', {
+  kind: 'scalar',
+  resolve: resolveYamlBoolean,
+  construct: constructYamlBoolean,
+  predicate: isBoolean,
+  represent: {
+    lowercase: function (object) { return object ? 'true' : 'false'; },
+    uppercase: function (object) { return object ? 'TRUE' : 'FALSE'; },
+    camelcase: function (object) { return object ? 'True' : 'False'; }
+  },
+  defaultStyle: 'lowercase'
+});
+
+
+/***/ }),
 /* 229 */,
 /* 230 */
 /***/ (function(module) {
@@ -12083,7 +12627,12 @@ module.exports = function entity(state, silent) {
 /* 254 */,
 /* 255 */,
 /* 256 */,
-/* 257 */,
+/* 257 */
+/***/ (function(module) {
+
+module.exports = {"$id":"pageTimings.json#","$schema":"http://json-schema.org/draft-06/schema#","type":"object","properties":{"onContentLoad":{"type":"number","min":-1},"onLoad":{"type":"number","min":-1},"comment":{"type":"string"}}};
+
+/***/ }),
 /* 258 */,
 /* 259 */,
 /* 260 */
@@ -13130,7 +13679,241 @@ module.exports.info = {
 
 /***/ }),
 /* 275 */,
-/* 276 */,
+/* 276 */
+/***/ (function(module) {
+
+"use strict";
+
+module.exports = function generate_custom(it, $keyword, $ruleType) {
+  var out = ' ';
+  var $lvl = it.level;
+  var $dataLvl = it.dataLevel;
+  var $schema = it.schema[$keyword];
+  var $schemaPath = it.schemaPath + it.util.getProperty($keyword);
+  var $errSchemaPath = it.errSchemaPath + '/' + $keyword;
+  var $breakOnError = !it.opts.allErrors;
+  var $errorKeyword;
+  var $data = 'data' + ($dataLvl || '');
+  var $valid = 'valid' + $lvl;
+  var $errs = 'errs__' + $lvl;
+  var $isData = it.opts.$data && $schema && $schema.$data,
+    $schemaValue;
+  if ($isData) {
+    out += ' var schema' + ($lvl) + ' = ' + (it.util.getData($schema.$data, $dataLvl, it.dataPathArr)) + '; ';
+    $schemaValue = 'schema' + $lvl;
+  } else {
+    $schemaValue = $schema;
+  }
+  var $rule = this,
+    $definition = 'definition' + $lvl,
+    $rDef = $rule.definition,
+    $closingBraces = '';
+  var $compile, $inline, $macro, $ruleValidate, $validateCode;
+  if ($isData && $rDef.$data) {
+    $validateCode = 'keywordValidate' + $lvl;
+    var $validateSchema = $rDef.validateSchema;
+    out += ' var ' + ($definition) + ' = RULES.custom[\'' + ($keyword) + '\'].definition; var ' + ($validateCode) + ' = ' + ($definition) + '.validate;';
+  } else {
+    $ruleValidate = it.useCustomRule($rule, $schema, it.schema, it);
+    if (!$ruleValidate) return;
+    $schemaValue = 'validate.schema' + $schemaPath;
+    $validateCode = $ruleValidate.code;
+    $compile = $rDef.compile;
+    $inline = $rDef.inline;
+    $macro = $rDef.macro;
+  }
+  var $ruleErrs = $validateCode + '.errors',
+    $i = 'i' + $lvl,
+    $ruleErr = 'ruleErr' + $lvl,
+    $asyncKeyword = $rDef.async;
+  if ($asyncKeyword && !it.async) throw new Error('async keyword in sync schema');
+  if (!($inline || $macro)) {
+    out += '' + ($ruleErrs) + ' = null;';
+  }
+  out += 'var ' + ($errs) + ' = errors;var ' + ($valid) + ';';
+  if ($isData && $rDef.$data) {
+    $closingBraces += '}';
+    out += ' if (' + ($schemaValue) + ' === undefined) { ' + ($valid) + ' = true; } else { ';
+    if ($validateSchema) {
+      $closingBraces += '}';
+      out += ' ' + ($valid) + ' = ' + ($definition) + '.validateSchema(' + ($schemaValue) + '); if (' + ($valid) + ') { ';
+    }
+  }
+  if ($inline) {
+    if ($rDef.statements) {
+      out += ' ' + ($ruleValidate.validate) + ' ';
+    } else {
+      out += ' ' + ($valid) + ' = ' + ($ruleValidate.validate) + '; ';
+    }
+  } else if ($macro) {
+    var $it = it.util.copy(it);
+    var $closingBraces = '';
+    $it.level++;
+    var $nextValid = 'valid' + $it.level;
+    $it.schema = $ruleValidate.validate;
+    $it.schemaPath = '';
+    var $wasComposite = it.compositeRule;
+    it.compositeRule = $it.compositeRule = true;
+    var $code = it.validate($it).replace(/validate\.schema/g, $validateCode);
+    it.compositeRule = $it.compositeRule = $wasComposite;
+    out += ' ' + ($code);
+  } else {
+    var $$outStack = $$outStack || [];
+    $$outStack.push(out);
+    out = '';
+    out += '  ' + ($validateCode) + '.call( ';
+    if (it.opts.passContext) {
+      out += 'this';
+    } else {
+      out += 'self';
+    }
+    if ($compile || $rDef.schema === false) {
+      out += ' , ' + ($data) + ' ';
+    } else {
+      out += ' , ' + ($schemaValue) + ' , ' + ($data) + ' , validate.schema' + (it.schemaPath) + ' ';
+    }
+    out += ' , (dataPath || \'\')';
+    if (it.errorPath != '""') {
+      out += ' + ' + (it.errorPath);
+    }
+    var $parentData = $dataLvl ? 'data' + (($dataLvl - 1) || '') : 'parentData',
+      $parentDataProperty = $dataLvl ? it.dataPathArr[$dataLvl] : 'parentDataProperty';
+    out += ' , ' + ($parentData) + ' , ' + ($parentDataProperty) + ' , rootData )  ';
+    var def_callRuleValidate = out;
+    out = $$outStack.pop();
+    if ($rDef.errors === false) {
+      out += ' ' + ($valid) + ' = ';
+      if ($asyncKeyword) {
+        out += 'await ';
+      }
+      out += '' + (def_callRuleValidate) + '; ';
+    } else {
+      if ($asyncKeyword) {
+        $ruleErrs = 'customErrors' + $lvl;
+        out += ' var ' + ($ruleErrs) + ' = null; try { ' + ($valid) + ' = await ' + (def_callRuleValidate) + '; } catch (e) { ' + ($valid) + ' = false; if (e instanceof ValidationError) ' + ($ruleErrs) + ' = e.errors; else throw e; } ';
+      } else {
+        out += ' ' + ($ruleErrs) + ' = null; ' + ($valid) + ' = ' + (def_callRuleValidate) + '; ';
+      }
+    }
+  }
+  if ($rDef.modifying) {
+    out += ' if (' + ($parentData) + ') ' + ($data) + ' = ' + ($parentData) + '[' + ($parentDataProperty) + '];';
+  }
+  out += '' + ($closingBraces);
+  if ($rDef.valid) {
+    if ($breakOnError) {
+      out += ' if (true) { ';
+    }
+  } else {
+    out += ' if ( ';
+    if ($rDef.valid === undefined) {
+      out += ' !';
+      if ($macro) {
+        out += '' + ($nextValid);
+      } else {
+        out += '' + ($valid);
+      }
+    } else {
+      out += ' ' + (!$rDef.valid) + ' ';
+    }
+    out += ') { ';
+    $errorKeyword = $rule.keyword;
+    var $$outStack = $$outStack || [];
+    $$outStack.push(out);
+    out = '';
+    var $$outStack = $$outStack || [];
+    $$outStack.push(out);
+    out = ''; /* istanbul ignore else */
+    if (it.createErrors !== false) {
+      out += ' { keyword: \'' + ($errorKeyword || 'custom') + '\' , dataPath: (dataPath || \'\') + ' + (it.errorPath) + ' , schemaPath: ' + (it.util.toQuotedString($errSchemaPath)) + ' , params: { keyword: \'' + ($rule.keyword) + '\' } ';
+      if (it.opts.messages !== false) {
+        out += ' , message: \'should pass "' + ($rule.keyword) + '" keyword validation\' ';
+      }
+      if (it.opts.verbose) {
+        out += ' , schema: validate.schema' + ($schemaPath) + ' , parentSchema: validate.schema' + (it.schemaPath) + ' , data: ' + ($data) + ' ';
+      }
+      out += ' } ';
+    } else {
+      out += ' {} ';
+    }
+    var __err = out;
+    out = $$outStack.pop();
+    if (!it.compositeRule && $breakOnError) {
+      /* istanbul ignore if */
+      if (it.async) {
+        out += ' throw new ValidationError([' + (__err) + ']); ';
+      } else {
+        out += ' validate.errors = [' + (__err) + ']; return false; ';
+      }
+    } else {
+      out += ' var err = ' + (__err) + ';  if (vErrors === null) vErrors = [err]; else vErrors.push(err); errors++; ';
+    }
+    var def_customError = out;
+    out = $$outStack.pop();
+    if ($inline) {
+      if ($rDef.errors) {
+        if ($rDef.errors != 'full') {
+          out += '  for (var ' + ($i) + '=' + ($errs) + '; ' + ($i) + '<errors; ' + ($i) + '++) { var ' + ($ruleErr) + ' = vErrors[' + ($i) + ']; if (' + ($ruleErr) + '.dataPath === undefined) ' + ($ruleErr) + '.dataPath = (dataPath || \'\') + ' + (it.errorPath) + '; if (' + ($ruleErr) + '.schemaPath === undefined) { ' + ($ruleErr) + '.schemaPath = "' + ($errSchemaPath) + '"; } ';
+          if (it.opts.verbose) {
+            out += ' ' + ($ruleErr) + '.schema = ' + ($schemaValue) + '; ' + ($ruleErr) + '.data = ' + ($data) + '; ';
+          }
+          out += ' } ';
+        }
+      } else {
+        if ($rDef.errors === false) {
+          out += ' ' + (def_customError) + ' ';
+        } else {
+          out += ' if (' + ($errs) + ' == errors) { ' + (def_customError) + ' } else {  for (var ' + ($i) + '=' + ($errs) + '; ' + ($i) + '<errors; ' + ($i) + '++) { var ' + ($ruleErr) + ' = vErrors[' + ($i) + ']; if (' + ($ruleErr) + '.dataPath === undefined) ' + ($ruleErr) + '.dataPath = (dataPath || \'\') + ' + (it.errorPath) + '; if (' + ($ruleErr) + '.schemaPath === undefined) { ' + ($ruleErr) + '.schemaPath = "' + ($errSchemaPath) + '"; } ';
+          if (it.opts.verbose) {
+            out += ' ' + ($ruleErr) + '.schema = ' + ($schemaValue) + '; ' + ($ruleErr) + '.data = ' + ($data) + '; ';
+          }
+          out += ' } } ';
+        }
+      }
+    } else if ($macro) {
+      out += '   var err =   '; /* istanbul ignore else */
+      if (it.createErrors !== false) {
+        out += ' { keyword: \'' + ($errorKeyword || 'custom') + '\' , dataPath: (dataPath || \'\') + ' + (it.errorPath) + ' , schemaPath: ' + (it.util.toQuotedString($errSchemaPath)) + ' , params: { keyword: \'' + ($rule.keyword) + '\' } ';
+        if (it.opts.messages !== false) {
+          out += ' , message: \'should pass "' + ($rule.keyword) + '" keyword validation\' ';
+        }
+        if (it.opts.verbose) {
+          out += ' , schema: validate.schema' + ($schemaPath) + ' , parentSchema: validate.schema' + (it.schemaPath) + ' , data: ' + ($data) + ' ';
+        }
+        out += ' } ';
+      } else {
+        out += ' {} ';
+      }
+      out += ';  if (vErrors === null) vErrors = [err]; else vErrors.push(err); errors++; ';
+      if (!it.compositeRule && $breakOnError) {
+        /* istanbul ignore if */
+        if (it.async) {
+          out += ' throw new ValidationError(vErrors); ';
+        } else {
+          out += ' validate.errors = vErrors; return false; ';
+        }
+      }
+    } else {
+      if ($rDef.errors === false) {
+        out += ' ' + (def_customError) + ' ';
+      } else {
+        out += ' if (Array.isArray(' + ($ruleErrs) + ')) { if (vErrors === null) vErrors = ' + ($ruleErrs) + '; else vErrors = vErrors.concat(' + ($ruleErrs) + '); errors = vErrors.length;  for (var ' + ($i) + '=' + ($errs) + '; ' + ($i) + '<errors; ' + ($i) + '++) { var ' + ($ruleErr) + ' = vErrors[' + ($i) + ']; if (' + ($ruleErr) + '.dataPath === undefined) ' + ($ruleErr) + '.dataPath = (dataPath || \'\') + ' + (it.errorPath) + ';  ' + ($ruleErr) + '.schemaPath = "' + ($errSchemaPath) + '";  ';
+        if (it.opts.verbose) {
+          out += ' ' + ($ruleErr) + '.schema = ' + ($schemaValue) + '; ' + ($ruleErr) + '.data = ' + ($data) + '; ';
+        }
+        out += ' } } else { ' + (def_customError) + ' } ';
+      }
+    }
+    out += ' } ';
+    if ($breakOnError) {
+      out += ' else { ';
+    }
+  }
+  return out;
+}
+
+
+/***/ }),
 /* 277 */,
 /* 278 */,
 /* 279 */,
@@ -13482,7 +14265,102 @@ module.exports = {
 
 
 /***/ }),
-/* 288 */,
+/* 288 */
+/***/ (function(module) {
+
+"use strict";
+// Skip text characters for text token, place those to pending buffer
+// and increment current pos
+
+
+
+
+// Rule to skip pure text
+// '{}$%@~+=:' reserved for extentions
+
+// !, ", #, $, %, &, ', (, ), *, +, ,, -, ., /, :, ;, <, =, >, ?, @, [, \, ], ^, _, `, {, |, }, or ~
+
+// !!!! Don't confuse with "Markdown ASCII Punctuation" chars
+// http://spec.commonmark.org/0.15/#ascii-punctuation-character
+function isTerminatorChar(ch) {
+  switch (ch) {
+    case 0x0A/* \n */:
+    case 0x21/* ! */:
+    case 0x23/* # */:
+    case 0x24/* $ */:
+    case 0x25/* % */:
+    case 0x26/* & */:
+    case 0x2A/* * */:
+    case 0x2B/* + */:
+    case 0x2D/* - */:
+    case 0x3A/* : */:
+    case 0x3C/* < */:
+    case 0x3D/* = */:
+    case 0x3E/* > */:
+    case 0x40/* @ */:
+    case 0x5B/* [ */:
+    case 0x5C/* \ */:
+    case 0x5D/* ] */:
+    case 0x5E/* ^ */:
+    case 0x5F/* _ */:
+    case 0x60/* ` */:
+    case 0x7B/* { */:
+    case 0x7D/* } */:
+    case 0x7E/* ~ */:
+      return true;
+    default:
+      return false;
+  }
+}
+
+module.exports = function text(state, silent) {
+  var pos = state.pos;
+
+  while (pos < state.posMax && !isTerminatorChar(state.src.charCodeAt(pos))) {
+    pos++;
+  }
+
+  if (pos === state.pos) { return false; }
+
+  if (!silent) { state.pending += state.src.slice(state.pos, pos); }
+
+  state.pos = pos;
+
+  return true;
+};
+
+// Alternative implementation, for memory.
+//
+// It costs 10% of performance, but allows extend terminators list, if place it
+// to `ParcerInline` property. Probably, will switch to it sometime, such
+// flexibility required.
+
+/*
+var TERMINATOR_RE = /[\n!#$%&*+\-:<=>@[\\\]^_`{}~]/;
+
+module.exports = function text(state, silent) {
+  var pos = state.pos,
+      idx = state.src.slice(pos).search(TERMINATOR_RE);
+
+  // first char is terminator -> empty text
+  if (idx === 0) { return false; }
+
+  // no terminator -> text till end of string
+  if (idx < 0) {
+    if (!silent) { state.pending += state.src.slice(pos); }
+    state.pos = state.src.length;
+    return true;
+  }
+
+  if (!silent) { state.pending += state.src.slice(pos, pos + idx); }
+
+  state.pos += idx;
+
+  return true;
+};*/
+
+
+/***/ }),
 /* 289 */,
 /* 290 */,
 /* 291 */,
@@ -13806,7 +14684,7 @@ module.exports = require("string_decoder");
 
 
 
-var Token          = __webpack_require__(377);
+var Token          = __webpack_require__(423);
 var isWhiteSpace   = __webpack_require__(530).isWhiteSpace;
 var isPunctChar    = __webpack_require__(530).isPunctChar;
 var isMdAsciiPunct = __webpack_require__(530).isMdAsciiPunct;
@@ -16080,7 +16958,47 @@ exports.toJSON = toJSON;
 
 /***/ }),
 /* 311 */,
-/* 312 */,
+/* 312 */
+/***/ (function(module) {
+
+"use strict";
+// Code block (4 spaces padded)
+
+
+
+
+module.exports = function code(state, startLine, endLine/*, silent*/) {
+  var nextLine, last, token;
+
+  if (state.sCount[startLine] - state.blkIndent < 4) { return false; }
+
+  last = nextLine = startLine + 1;
+
+  while (nextLine < endLine) {
+    if (state.isEmpty(nextLine)) {
+      nextLine++;
+      continue;
+    }
+
+    if (state.sCount[nextLine] - state.blkIndent >= 4) {
+      nextLine++;
+      last = nextLine;
+      continue;
+    }
+    break;
+  }
+
+  state.line = last;
+
+  token         = state.push('code_block', 'code', 0);
+  token.content = state.getLines(startLine, last, 4 + state.blkIndent, true);
+  token.map     = [ startLine, state.line ];
+
+  return true;
+};
+
+
+/***/ }),
 /* 313 */,
 /* 314 */
 /***/ (function(module) {
@@ -17405,157 +18323,97 @@ module.exports=/[ \xA0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]/
 "use strict";
 
 
-var CodeBuilder = __webpack_require__(193)
+var esprima;
 
-function getDecompressionMethods (source) {
-  var acceptEncoding = source.allHeaders['accept-encoding']
-  if (!acceptEncoding) {
-    return [] // no decompression
-  }
-
-  var supportedMethods = {
-    gzip: 'DecompressionMethods.GZip',
-    deflate: 'DecompressionMethods.Deflate'
-  }
-  var methods = []
-  acceptEncoding.split(',').forEach(function (encoding) {
-    var match = /\s*([^;\s]+)/.exec(encoding)
-    if (match) {
-      var method = supportedMethods[match[1]]
-      if (method) {
-        methods.push(method)
-      }
-    }
-  })
-
-  return methods
+// Browserified version does not have esprima
+//
+// 1. For node.js just require module as deps
+// 2. For browser try to require mudule via external AMD system.
+//    If not found - try to fallback to window.esprima. If not
+//    found too - then fail to parse.
+//
+try {
+  // workaround to exclude package from browserify list.
+  var _require = require;
+  esprima = _require('esprima');
+} catch (_) {
+  /* eslint-disable no-redeclare */
+  /* global window */
+  if (typeof window !== 'undefined') esprima = window.esprima;
 }
 
-module.exports = function (source, options) {
-  var indentation = '    '
-  var code = new CodeBuilder(indentation)
+var Type = __webpack_require__(945);
 
-  var clienthandler = ''
-  var cookies = !!source.allHeaders.cookie
-  var decompressionMethods = getDecompressionMethods(source)
-  if (cookies || decompressionMethods.length) {
-    clienthandler = 'clientHandler'
-    code.push('var clientHandler = new HttpClientHandler')
-    code.push('{')
-    if (cookies) {
-      // enable setting the cookie header
-      code.push(1, 'UseCookies = false,')
+function resolveJavascriptFunction(data) {
+  if (data === null) return false;
+
+  try {
+    var source = '(' + data + ')',
+        ast    = esprima.parse(source, { range: true });
+
+    if (ast.type                    !== 'Program'             ||
+        ast.body.length             !== 1                     ||
+        ast.body[0].type            !== 'ExpressionStatement' ||
+        (ast.body[0].expression.type !== 'ArrowFunctionExpression' &&
+          ast.body[0].expression.type !== 'FunctionExpression')) {
+      return false;
     }
-    if (decompressionMethods.length) {
-      // enable decompression for supported methods
-      code.push(1, 'AutomaticDecompression = %s,', decompressionMethods.join(' | '))
-    }
-    code.push('};')
+
+    return true;
+  } catch (err) {
+    return false;
   }
-
-  code.push('var client = new HttpClient(%s);', clienthandler)
-
-  code.push('var request = new HttpRequestMessage')
-  code.push('{')
-
-  var methods = [ 'GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS', 'TRACE' ]
-  var method = source.method.toUpperCase()
-  if (method && (methods.indexOf(method) !== -1)) {
-    // buildin method
-    method = `HttpMethod.${method[0]}${method.substring(1).toLowerCase()}`
-  } else {
-    // custom method
-    method = `new HttpMethod("${method}")`
-  }
-  code.push(1, 'Method = %s,', method)
-
-  code.push(1, 'RequestUri = new Uri("%s"),', source.fullUrl)
-
-  var headers = Object.keys(source.allHeaders).filter(function (header) {
-    switch (header) {
-      case 'content-type':
-      case 'content-length':
-      case 'accept-encoding':
-        // skip these headers
-        return false
-      default:
-        return true
-    }
-  })
-  if (headers.length) {
-    code.push(1, 'Headers =')
-    code.push(1, '{')
-    headers.forEach(function (key) {
-      code.push(2, '{ "%s", "%s" },', key, source.allHeaders[key])
-    })
-    code.push(1, '},')
-  }
-
-  if (source.postData.text) {
-    const contentType = source.postData.mimeType
-    switch (contentType) {
-      case 'application/x-www-form-urlencoded':
-        code.push(1, 'Content = new FormUrlEncodedContent(new Dictionary<string, string>')
-        code.push(1, '{')
-        source.postData.params.forEach(function (param) {
-          code.push(2, '{ "%s", "%s" },', param.name, param.value)
-        })
-        code.push(1, '}),')
-        break
-      case 'multipart/form-data':
-        code.push(1, 'Content = new MultipartFormDataContent')
-        code.push(1, '{')
-        source.postData.params.forEach(function (param) {
-          code.push(2, 'new StringContent(%s)', JSON.stringify(param.value || ''))
-          code.push(2, '{')
-          code.push(3, 'Headers =')
-          code.push(3, '{')
-          if (param.contentType) {
-            code.push(4, 'ContentType = new MediaTypeHeaderValue("%s"),', param.contentType)
-          }
-          code.push(4, 'ContentDisposition = new ContentDispositionHeaderValue("form-data")')
-          code.push(4, '{')
-          code.push(5, 'Name = "%s",', param.name)
-          if (param.fileName) {
-            code.push(5, 'FileName = "%s",', param.fileName)
-          }
-          code.push(4, '}')
-          code.push(3, '}')
-          code.push(2, '},')
-        })
-
-        code.push(1, '},')
-        break
-      default:
-        code.push(1, 'Content = new StringContent(%s)', JSON.stringify(source.postData.text || ''))
-        code.push(1, '{')
-        code.push(2, 'Headers =')
-        code.push(2, '{')
-        code.push(3, 'ContentType = new MediaTypeHeaderValue("%s")', contentType)
-        code.push(2, '}')
-        code.push(1, '}')
-        break
-    }
-  }
-  code.push('};')
-
-  // send and read response
-  code.push('using (var response = await client.SendAsync(request))')
-  code.push('{')
-  code.push(1, 'response.EnsureSuccessStatusCode();')
-  code.push(1, 'var body = await response.Content.ReadAsStringAsync();')
-  code.push(1, 'Console.WriteLine(body);')
-  code.push('}')
-
-  return code.join()
 }
 
-module.exports.info = {
-  key: 'httpclient',
-  title: 'HttpClient',
-  link: 'https://docs.microsoft.com/en-us/dotnet/api/system.net.http.httpclient',
-  description: '.NET Standard HTTP Client'
+function constructJavascriptFunction(data) {
+  /*jslint evil:true*/
+
+  var source = '(' + data + ')',
+      ast    = esprima.parse(source, { range: true }),
+      params = [],
+      body;
+
+  if (ast.type                    !== 'Program'             ||
+      ast.body.length             !== 1                     ||
+      ast.body[0].type            !== 'ExpressionStatement' ||
+      (ast.body[0].expression.type !== 'ArrowFunctionExpression' &&
+        ast.body[0].expression.type !== 'FunctionExpression')) {
+    throw new Error('Failed to resolve function');
+  }
+
+  ast.body[0].expression.params.forEach(function (param) {
+    params.push(param.name);
+  });
+
+  body = ast.body[0].expression.body.range;
+
+  // Esprima's ranges include the first '{' and the last '}' characters on
+  // function expressions. So cut them out.
+  if (ast.body[0].expression.body.type === 'BlockStatement') {
+    /*eslint-disable no-new-func*/
+    return new Function(params, source.slice(body[0] + 1, body[1] - 1));
+  }
+  // ES6 arrow functions can omit the BlockStatement. In that case, just return
+  // the body.
+  /*eslint-disable no-new-func*/
+  return new Function(params, 'return ' + source.slice(body[0], body[1]));
 }
+
+function representJavascriptFunction(object /*, style*/) {
+  return object.toString();
+}
+
+function isFunction(object) {
+  return Object.prototype.toString.call(object) === '[object Function]';
+}
+
+module.exports = new Type('tag:yaml.org,2002:js/function', {
+  kind: 'scalar',
+  resolve: resolveJavascriptFunction,
+  construct: constructJavascriptFunction,
+  predicate: isFunction,
+  represent: representJavascriptFunction
+});
 
 
 /***/ }),
@@ -17625,97 +18483,7 @@ module.exports = require("assert");
 /* 362 */
 /***/ (function(module) {
 
-"use strict";
-// Skip text characters for text token, place those to pending buffer
-// and increment current pos
-
-
-
-
-// Rule to skip pure text
-// '{}$%@~+=:' reserved for extentions
-
-// !, ", #, $, %, &, ', (, ), *, +, ,, -, ., /, :, ;, <, =, >, ?, @, [, \, ], ^, _, `, {, |, }, or ~
-
-// !!!! Don't confuse with "Markdown ASCII Punctuation" chars
-// http://spec.commonmark.org/0.15/#ascii-punctuation-character
-function isTerminatorChar(ch) {
-  switch (ch) {
-    case 0x0A/* \n */:
-    case 0x21/* ! */:
-    case 0x23/* # */:
-    case 0x24/* $ */:
-    case 0x25/* % */:
-    case 0x26/* & */:
-    case 0x2A/* * */:
-    case 0x2B/* + */:
-    case 0x2D/* - */:
-    case 0x3A/* : */:
-    case 0x3C/* < */:
-    case 0x3D/* = */:
-    case 0x3E/* > */:
-    case 0x40/* @ */:
-    case 0x5B/* [ */:
-    case 0x5C/* \ */:
-    case 0x5D/* ] */:
-    case 0x5E/* ^ */:
-    case 0x5F/* _ */:
-    case 0x60/* ` */:
-    case 0x7B/* { */:
-    case 0x7D/* } */:
-    case 0x7E/* ~ */:
-      return true;
-    default:
-      return false;
-  }
-}
-
-module.exports = function text(state, silent) {
-  var pos = state.pos;
-
-  while (pos < state.posMax && !isTerminatorChar(state.src.charCodeAt(pos))) {
-    pos++;
-  }
-
-  if (pos === state.pos) { return false; }
-
-  if (!silent) { state.pending += state.src.slice(state.pos, pos); }
-
-  state.pos = pos;
-
-  return true;
-};
-
-// Alternative implementation, for memory.
-//
-// It costs 10% of performance, but allows extend terminators list, if place it
-// to `ParcerInline` property. Probably, will switch to it sometime, such
-// flexibility required.
-
-/*
-var TERMINATOR_RE = /[\n!#$%&*+\-:<=>@[\\\]^_`{}~]/;
-
-module.exports = function text(state, silent) {
-  var pos = state.pos,
-      idx = state.src.slice(pos).search(TERMINATOR_RE);
-
-  // first char is terminator -> empty text
-  if (idx === 0) { return false; }
-
-  // no terminator -> text till end of string
-  if (idx < 0) {
-    if (!silent) { state.pending += state.src.slice(pos); }
-    state.pos = state.src.length;
-    return true;
-  }
-
-  if (!silent) { state.pending += state.src.slice(pos, pos + idx); }
-
-  state.pos += idx;
-
-  return true;
-};*/
-
+module.exports = {"$id":"postData.json#","$schema":"http://json-schema.org/draft-06/schema#","type":"object","optional":true,"required":["mimeType"],"properties":{"mimeType":{"type":"string"},"text":{"type":"string"},"params":{"type":"array","required":["name"],"properties":{"name":{"type":"string"},"value":{"type":"string"},"fileName":{"type":"string"},"contentType":{"type":"string"},"comment":{"type":"string"}}},"comment":{"type":"string"}}};
 
 /***/ }),
 /* 363 */
@@ -18070,203 +18838,146 @@ module.exports.postProcess = function strikethrough(state) {
 /***/ (function(module) {
 
 "use strict";
-// Token class
 
-
-
-
-/**
- * class Token
- **/
-
-/**
- * new Token(type, tag, nesting)
- *
- * Create new token and fill passed properties.
- **/
-function Token(type, tag, nesting) {
-  /**
-   * Token#type -> String
-   *
-   * Type of the token (string, e.g. "paragraph_open")
-   **/
-  this.type     = type;
-
-  /**
-   * Token#tag -> String
-   *
-   * html tag name, e.g. "p"
-   **/
-  this.tag      = tag;
-
-  /**
-   * Token#attrs -> Array
-   *
-   * Html attributes. Format: `[ [ name1, value1 ], [ name2, value2 ] ]`
-   **/
-  this.attrs    = null;
-
-  /**
-   * Token#map -> Array
-   *
-   * Source map info. Format: `[ line_begin, line_end ]`
-   **/
-  this.map      = null;
-
-  /**
-   * Token#nesting -> Number
-   *
-   * Level change (number in {-1, 0, 1} set), where:
-   *
-   * -  `1` means the tag is opening
-   * -  `0` means the tag is self-closing
-   * - `-1` means the tag is closing
-   **/
-  this.nesting  = nesting;
-
-  /**
-   * Token#level -> Number
-   *
-   * nesting level, the same as `state.level`
-   **/
-  this.level    = 0;
-
-  /**
-   * Token#children -> Array
-   *
-   * An array of child nodes (inline and img tokens)
-   **/
-  this.children = null;
-
-  /**
-   * Token#content -> String
-   *
-   * In a case of self-closing tag (code, html, fence, etc.),
-   * it has contents of this tag.
-   **/
-  this.content  = '';
-
-  /**
-   * Token#markup -> String
-   *
-   * '*' or '_' for emphasis, fence string for fence, etc.
-   **/
-  this.markup   = '';
-
-  /**
-   * Token#info -> String
-   *
-   * fence infostring
-   **/
-  this.info     = '';
-
-  /**
-   * Token#meta -> Object
-   *
-   * A place for plugins to store an arbitrary data
-   **/
-  this.meta     = null;
-
-  /**
-   * Token#block -> Boolean
-   *
-   * True for block-level tokens, false for inline tokens.
-   * Used in renderer to calculate line breaks
-   **/
-  this.block    = false;
-
-  /**
-   * Token#hidden -> Boolean
-   *
-   * If it's true, ignore this element when rendering. Used for tight lists
-   * to hide paragraphs.
-   **/
-  this.hidden   = false;
+module.exports = function generate_items(it, $keyword, $ruleType) {
+  var out = ' ';
+  var $lvl = it.level;
+  var $dataLvl = it.dataLevel;
+  var $schema = it.schema[$keyword];
+  var $schemaPath = it.schemaPath + it.util.getProperty($keyword);
+  var $errSchemaPath = it.errSchemaPath + '/' + $keyword;
+  var $breakOnError = !it.opts.allErrors;
+  var $data = 'data' + ($dataLvl || '');
+  var $valid = 'valid' + $lvl;
+  var $errs = 'errs__' + $lvl;
+  var $it = it.util.copy(it);
+  var $closingBraces = '';
+  $it.level++;
+  var $nextValid = 'valid' + $it.level;
+  var $idx = 'i' + $lvl,
+    $dataNxt = $it.dataLevel = it.dataLevel + 1,
+    $nextData = 'data' + $dataNxt,
+    $currentBaseId = it.baseId;
+  out += 'var ' + ($errs) + ' = errors;var ' + ($valid) + ';';
+  if (Array.isArray($schema)) {
+    var $additionalItems = it.schema.additionalItems;
+    if ($additionalItems === false) {
+      out += ' ' + ($valid) + ' = ' + ($data) + '.length <= ' + ($schema.length) + '; ';
+      var $currErrSchemaPath = $errSchemaPath;
+      $errSchemaPath = it.errSchemaPath + '/additionalItems';
+      out += '  if (!' + ($valid) + ') {   ';
+      var $$outStack = $$outStack || [];
+      $$outStack.push(out);
+      out = ''; /* istanbul ignore else */
+      if (it.createErrors !== false) {
+        out += ' { keyword: \'' + ('additionalItems') + '\' , dataPath: (dataPath || \'\') + ' + (it.errorPath) + ' , schemaPath: ' + (it.util.toQuotedString($errSchemaPath)) + ' , params: { limit: ' + ($schema.length) + ' } ';
+        if (it.opts.messages !== false) {
+          out += ' , message: \'should NOT have more than ' + ($schema.length) + ' items\' ';
+        }
+        if (it.opts.verbose) {
+          out += ' , schema: false , parentSchema: validate.schema' + (it.schemaPath) + ' , data: ' + ($data) + ' ';
+        }
+        out += ' } ';
+      } else {
+        out += ' {} ';
+      }
+      var __err = out;
+      out = $$outStack.pop();
+      if (!it.compositeRule && $breakOnError) {
+        /* istanbul ignore if */
+        if (it.async) {
+          out += ' throw new ValidationError([' + (__err) + ']); ';
+        } else {
+          out += ' validate.errors = [' + (__err) + ']; return false; ';
+        }
+      } else {
+        out += ' var err = ' + (__err) + ';  if (vErrors === null) vErrors = [err]; else vErrors.push(err); errors++; ';
+      }
+      out += ' } ';
+      $errSchemaPath = $currErrSchemaPath;
+      if ($breakOnError) {
+        $closingBraces += '}';
+        out += ' else { ';
+      }
+    }
+    var arr1 = $schema;
+    if (arr1) {
+      var $sch, $i = -1,
+        l1 = arr1.length - 1;
+      while ($i < l1) {
+        $sch = arr1[$i += 1];
+        if ((it.opts.strictKeywords ? typeof $sch == 'object' && Object.keys($sch).length > 0 : it.util.schemaHasRules($sch, it.RULES.all))) {
+          out += ' ' + ($nextValid) + ' = true; if (' + ($data) + '.length > ' + ($i) + ') { ';
+          var $passData = $data + '[' + $i + ']';
+          $it.schema = $sch;
+          $it.schemaPath = $schemaPath + '[' + $i + ']';
+          $it.errSchemaPath = $errSchemaPath + '/' + $i;
+          $it.errorPath = it.util.getPathExpr(it.errorPath, $i, it.opts.jsonPointers, true);
+          $it.dataPathArr[$dataNxt] = $i;
+          var $code = it.validate($it);
+          $it.baseId = $currentBaseId;
+          if (it.util.varOccurences($code, $nextData) < 2) {
+            out += ' ' + (it.util.varReplace($code, $nextData, $passData)) + ' ';
+          } else {
+            out += ' var ' + ($nextData) + ' = ' + ($passData) + '; ' + ($code) + ' ';
+          }
+          out += ' }  ';
+          if ($breakOnError) {
+            out += ' if (' + ($nextValid) + ') { ';
+            $closingBraces += '}';
+          }
+        }
+      }
+    }
+    if (typeof $additionalItems == 'object' && (it.opts.strictKeywords ? typeof $additionalItems == 'object' && Object.keys($additionalItems).length > 0 : it.util.schemaHasRules($additionalItems, it.RULES.all))) {
+      $it.schema = $additionalItems;
+      $it.schemaPath = it.schemaPath + '.additionalItems';
+      $it.errSchemaPath = it.errSchemaPath + '/additionalItems';
+      out += ' ' + ($nextValid) + ' = true; if (' + ($data) + '.length > ' + ($schema.length) + ') {  for (var ' + ($idx) + ' = ' + ($schema.length) + '; ' + ($idx) + ' < ' + ($data) + '.length; ' + ($idx) + '++) { ';
+      $it.errorPath = it.util.getPathExpr(it.errorPath, $idx, it.opts.jsonPointers, true);
+      var $passData = $data + '[' + $idx + ']';
+      $it.dataPathArr[$dataNxt] = $idx;
+      var $code = it.validate($it);
+      $it.baseId = $currentBaseId;
+      if (it.util.varOccurences($code, $nextData) < 2) {
+        out += ' ' + (it.util.varReplace($code, $nextData, $passData)) + ' ';
+      } else {
+        out += ' var ' + ($nextData) + ' = ' + ($passData) + '; ' + ($code) + ' ';
+      }
+      if ($breakOnError) {
+        out += ' if (!' + ($nextValid) + ') break; ';
+      }
+      out += ' } }  ';
+      if ($breakOnError) {
+        out += ' if (' + ($nextValid) + ') { ';
+        $closingBraces += '}';
+      }
+    }
+  } else if ((it.opts.strictKeywords ? typeof $schema == 'object' && Object.keys($schema).length > 0 : it.util.schemaHasRules($schema, it.RULES.all))) {
+    $it.schema = $schema;
+    $it.schemaPath = $schemaPath;
+    $it.errSchemaPath = $errSchemaPath;
+    out += '  for (var ' + ($idx) + ' = ' + (0) + '; ' + ($idx) + ' < ' + ($data) + '.length; ' + ($idx) + '++) { ';
+    $it.errorPath = it.util.getPathExpr(it.errorPath, $idx, it.opts.jsonPointers, true);
+    var $passData = $data + '[' + $idx + ']';
+    $it.dataPathArr[$dataNxt] = $idx;
+    var $code = it.validate($it);
+    $it.baseId = $currentBaseId;
+    if (it.util.varOccurences($code, $nextData) < 2) {
+      out += ' ' + (it.util.varReplace($code, $nextData, $passData)) + ' ';
+    } else {
+      out += ' var ' + ($nextData) + ' = ' + ($passData) + '; ' + ($code) + ' ';
+    }
+    if ($breakOnError) {
+      out += ' if (!' + ($nextValid) + ') break; ';
+    }
+    out += ' }';
+  }
+  if ($breakOnError) {
+    out += ' ' + ($closingBraces) + ' if (' + ($errs) + ' == errors) {';
+  }
+  return out;
 }
-
-
-/**
- * Token.attrIndex(name) -> Number
- *
- * Search attribute index by name.
- **/
-Token.prototype.attrIndex = function attrIndex(name) {
-  var attrs, i, len;
-
-  if (!this.attrs) { return -1; }
-
-  attrs = this.attrs;
-
-  for (i = 0, len = attrs.length; i < len; i++) {
-    if (attrs[i][0] === name) { return i; }
-  }
-  return -1;
-};
-
-
-/**
- * Token.attrPush(attrData)
- *
- * Add `[ name, value ]` attribute to list. Init attrs if necessary
- **/
-Token.prototype.attrPush = function attrPush(attrData) {
-  if (this.attrs) {
-    this.attrs.push(attrData);
-  } else {
-    this.attrs = [ attrData ];
-  }
-};
-
-
-/**
- * Token.attrSet(name, value)
- *
- * Set `name` attribute to `value`. Override old value if exists.
- **/
-Token.prototype.attrSet = function attrSet(name, value) {
-  var idx = this.attrIndex(name),
-      attrData = [ name, value ];
-
-  if (idx < 0) {
-    this.attrPush(attrData);
-  } else {
-    this.attrs[idx] = attrData;
-  }
-};
-
-
-/**
- * Token.attrGet(name)
- *
- * Get the value of attribute `name`, or null if it does not exist.
- **/
-Token.prototype.attrGet = function attrGet(name) {
-  var idx = this.attrIndex(name), value = null;
-  if (idx >= 0) {
-    value = this.attrs[idx][1];
-  }
-  return value;
-};
-
-
-/**
- * Token.attrJoin(name, value)
- *
- * Join value to existing attribute via space. Or create new attribute if not
- * exists. Useful to operate with token classes.
- **/
-Token.prototype.attrJoin = function attrJoin(name, value) {
-  var idx = this.attrIndex(name);
-
-  if (idx < 0) {
-    this.attrPush([ name, value ]);
-  } else {
-    this.attrs[idx][1] = this.attrs[idx][1] + ' ' + value;
-  }
-};
-
-
-module.exports = Token;
 
 
 /***/ }),
@@ -18441,7 +19152,7 @@ module.exports = {
   'enum': __webpack_require__(281),
   format: __webpack_require__(687),
   'if': __webpack_require__(658),
-  items: __webpack_require__(643),
+  items: __webpack_require__(377),
   maximum: __webpack_require__(341),
   minimum: __webpack_require__(341),
   maxItems: __webpack_require__(85),
@@ -19490,7 +20201,41 @@ exports.endpoint = endpoint;
 
 
 /***/ }),
-/* 386 */,
+/* 386 */
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+"use strict";
+
+
+var Type = __webpack_require__(945);
+
+function resolveJavascriptUndefined() {
+  return true;
+}
+
+function constructJavascriptUndefined() {
+  /*eslint-disable no-undefined*/
+  return undefined;
+}
+
+function representJavascriptUndefined() {
+  return '';
+}
+
+function isUndefined(object) {
+  return typeof object === 'undefined';
+}
+
+module.exports = new Type('tag:yaml.org,2002:js/undefined', {
+  kind: 'scalar',
+  resolve: resolveJavascriptUndefined,
+  construct: constructJavascriptUndefined,
+  predicate: isUndefined,
+  represent: representJavascriptUndefined
+});
+
+
+/***/ }),
 /* 387 */,
 /* 388 */,
 /* 389 */
@@ -20567,7 +21312,20 @@ module.exports = __webpack_require__(141);
 
 
 /***/ }),
-/* 414 */,
+/* 414 */
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+"use strict";
+
+
+
+var yaml = __webpack_require__(9);
+
+
+module.exports = yaml;
+
+
+/***/ }),
 /* 415 */,
 /* 416 */
 /***/ (function(module) {
@@ -20581,70 +21339,120 @@ module.exports = {"$id":"timings.json#","$schema":"http://json-schema.org/draft-
 "use strict";
 
 
-var ruleModules = __webpack_require__(383)
-  , toHash = __webpack_require__(855).toHash;
+var common = __webpack_require__(740);
+var Type   = __webpack_require__(945);
 
-module.exports = function rules() {
-  var RULES = [
-    { type: 'number',
-      rules: [ { 'maximum': ['exclusiveMaximum'] },
-               { 'minimum': ['exclusiveMinimum'] }, 'multipleOf', 'format'] },
-    { type: 'string',
-      rules: [ 'maxLength', 'minLength', 'pattern', 'format' ] },
-    { type: 'array',
-      rules: [ 'maxItems', 'minItems', 'items', 'contains', 'uniqueItems' ] },
-    { type: 'object',
-      rules: [ 'maxProperties', 'minProperties', 'required', 'dependencies', 'propertyNames',
-               { 'properties': ['additionalProperties', 'patternProperties'] } ] },
-    { rules: [ '$ref', 'const', 'enum', 'not', 'anyOf', 'oneOf', 'allOf', 'if' ] }
-  ];
+var YAML_FLOAT_PATTERN = new RegExp(
+  // 2.5e4, 2.5 and integers
+  '^(?:[-+]?(?:0|[1-9][0-9_]*)(?:\\.[0-9_]*)?(?:[eE][-+]?[0-9]+)?' +
+  // .2e4, .2
+  // special case, seems not from spec
+  '|\\.[0-9_]+(?:[eE][-+]?[0-9]+)?' +
+  // 20:59
+  '|[-+]?[0-9][0-9_]*(?::[0-5]?[0-9])+\\.[0-9_]*' +
+  // .inf
+  '|[-+]?\\.(?:inf|Inf|INF)' +
+  // .nan
+  '|\\.(?:nan|NaN|NAN))$');
 
-  var ALL = [ 'type', '$comment' ];
-  var KEYWORDS = [
-    '$schema', '$id', 'id', '$data', '$async', 'title',
-    'description', 'default', 'definitions',
-    'examples', 'readOnly', 'writeOnly',
-    'contentMediaType', 'contentEncoding',
-    'additionalItems', 'then', 'else'
-  ];
-  var TYPES = [ 'number', 'integer', 'string', 'array', 'object', 'boolean', 'null' ];
-  RULES.all = toHash(ALL);
-  RULES.types = toHash(TYPES);
+function resolveYamlFloat(data) {
+  if (data === null) return false;
 
-  RULES.forEach(function (group) {
-    group.rules = group.rules.map(function (keyword) {
-      var implKeywords;
-      if (typeof keyword == 'object') {
-        var key = Object.keys(keyword)[0];
-        implKeywords = keyword[key];
-        keyword = key;
-        implKeywords.forEach(function (k) {
-          ALL.push(k);
-          RULES.all[k] = true;
-        });
-      }
-      ALL.push(keyword);
-      var rule = RULES.all[keyword] = {
-        keyword: keyword,
-        code: ruleModules[keyword],
-        implements: implKeywords
-      };
-      return rule;
+  if (!YAML_FLOAT_PATTERN.test(data) ||
+      // Quick hack to not allow integers end with `_`
+      // Probably should update regexp & check speed
+      data[data.length - 1] === '_') {
+    return false;
+  }
+
+  return true;
+}
+
+function constructYamlFloat(data) {
+  var value, sign, base, digits;
+
+  value  = data.replace(/_/g, '').toLowerCase();
+  sign   = value[0] === '-' ? -1 : 1;
+  digits = [];
+
+  if ('+-'.indexOf(value[0]) >= 0) {
+    value = value.slice(1);
+  }
+
+  if (value === '.inf') {
+    return (sign === 1) ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY;
+
+  } else if (value === '.nan') {
+    return NaN;
+
+  } else if (value.indexOf(':') >= 0) {
+    value.split(':').forEach(function (v) {
+      digits.unshift(parseFloat(v, 10));
     });
 
-    RULES.all.$comment = {
-      keyword: '$comment',
-      code: ruleModules.$comment
-    };
+    value = 0.0;
+    base = 1;
 
-    if (group.type) RULES.types[group.type] = group;
-  });
+    digits.forEach(function (d) {
+      value += d * base;
+      base *= 60;
+    });
 
-  RULES.keywords = toHash(ALL.concat(KEYWORDS));
-  RULES.custom = {};
+    return sign * value;
 
-  return RULES;
-};
+  }
+  return sign * parseFloat(value, 10);
+}
+
+
+var SCIENTIFIC_WITHOUT_DOT = /^[-+]?[0-9]+e/;
+
+function representYamlFloat(object, style) {
+  var res;
+
+  if (isNaN(object)) {
+    switch (style) {
+      case 'lowercase': return '.nan';
+      case 'uppercase': return '.NAN';
+      case 'camelcase': return '.NaN';
+    }
+  } else if (Number.POSITIVE_INFINITY === object) {
+    switch (style) {
+      case 'lowercase': return '.inf';
+      case 'uppercase': return '.INF';
+      case 'camelcase': return '.Inf';
+    }
+  } else if (Number.NEGATIVE_INFINITY === object) {
+    switch (style) {
+      case 'lowercase': return '-.inf';
+      case 'uppercase': return '-.INF';
+      case 'camelcase': return '-.Inf';
+    }
+  } else if (common.isNegativeZero(object)) {
+    return '-0.0';
+  }
+
+  res = object.toString(10);
+
+  // JS stringifier can build scientific format without dots: 5e-100,
+  // while YAML requres dot: 5.e-100. Fix it with simple hack
+
+  return SCIENTIFIC_WITHOUT_DOT.test(res) ? res.replace('e', '.e') : res;
+}
+
+function isFloat(object) {
+  return (Object.prototype.toString.call(object) === '[object Number]') &&
+         (object % 1 !== 0 || common.isNegativeZero(object));
+}
+
+module.exports = new Type('tag:yaml.org,2002:float', {
+  kind: 'scalar',
+  resolve: resolveYamlFloat,
+  construct: constructYamlFloat,
+  predicate: isFloat,
+  represent: representYamlFloat,
+  defaultStyle: 'lowercase'
+});
 
 
 /***/ }),
@@ -20672,7 +21480,210 @@ module.exports = function inline(state) {
 /* 420 */,
 /* 421 */,
 /* 422 */,
-/* 423 */,
+/* 423 */
+/***/ (function(module) {
+
+"use strict";
+// Token class
+
+
+
+
+/**
+ * class Token
+ **/
+
+/**
+ * new Token(type, tag, nesting)
+ *
+ * Create new token and fill passed properties.
+ **/
+function Token(type, tag, nesting) {
+  /**
+   * Token#type -> String
+   *
+   * Type of the token (string, e.g. "paragraph_open")
+   **/
+  this.type     = type;
+
+  /**
+   * Token#tag -> String
+   *
+   * html tag name, e.g. "p"
+   **/
+  this.tag      = tag;
+
+  /**
+   * Token#attrs -> Array
+   *
+   * Html attributes. Format: `[ [ name1, value1 ], [ name2, value2 ] ]`
+   **/
+  this.attrs    = null;
+
+  /**
+   * Token#map -> Array
+   *
+   * Source map info. Format: `[ line_begin, line_end ]`
+   **/
+  this.map      = null;
+
+  /**
+   * Token#nesting -> Number
+   *
+   * Level change (number in {-1, 0, 1} set), where:
+   *
+   * -  `1` means the tag is opening
+   * -  `0` means the tag is self-closing
+   * - `-1` means the tag is closing
+   **/
+  this.nesting  = nesting;
+
+  /**
+   * Token#level -> Number
+   *
+   * nesting level, the same as `state.level`
+   **/
+  this.level    = 0;
+
+  /**
+   * Token#children -> Array
+   *
+   * An array of child nodes (inline and img tokens)
+   **/
+  this.children = null;
+
+  /**
+   * Token#content -> String
+   *
+   * In a case of self-closing tag (code, html, fence, etc.),
+   * it has contents of this tag.
+   **/
+  this.content  = '';
+
+  /**
+   * Token#markup -> String
+   *
+   * '*' or '_' for emphasis, fence string for fence, etc.
+   **/
+  this.markup   = '';
+
+  /**
+   * Token#info -> String
+   *
+   * fence infostring
+   **/
+  this.info     = '';
+
+  /**
+   * Token#meta -> Object
+   *
+   * A place for plugins to store an arbitrary data
+   **/
+  this.meta     = null;
+
+  /**
+   * Token#block -> Boolean
+   *
+   * True for block-level tokens, false for inline tokens.
+   * Used in renderer to calculate line breaks
+   **/
+  this.block    = false;
+
+  /**
+   * Token#hidden -> Boolean
+   *
+   * If it's true, ignore this element when rendering. Used for tight lists
+   * to hide paragraphs.
+   **/
+  this.hidden   = false;
+}
+
+
+/**
+ * Token.attrIndex(name) -> Number
+ *
+ * Search attribute index by name.
+ **/
+Token.prototype.attrIndex = function attrIndex(name) {
+  var attrs, i, len;
+
+  if (!this.attrs) { return -1; }
+
+  attrs = this.attrs;
+
+  for (i = 0, len = attrs.length; i < len; i++) {
+    if (attrs[i][0] === name) { return i; }
+  }
+  return -1;
+};
+
+
+/**
+ * Token.attrPush(attrData)
+ *
+ * Add `[ name, value ]` attribute to list. Init attrs if necessary
+ **/
+Token.prototype.attrPush = function attrPush(attrData) {
+  if (this.attrs) {
+    this.attrs.push(attrData);
+  } else {
+    this.attrs = [ attrData ];
+  }
+};
+
+
+/**
+ * Token.attrSet(name, value)
+ *
+ * Set `name` attribute to `value`. Override old value if exists.
+ **/
+Token.prototype.attrSet = function attrSet(name, value) {
+  var idx = this.attrIndex(name),
+      attrData = [ name, value ];
+
+  if (idx < 0) {
+    this.attrPush(attrData);
+  } else {
+    this.attrs[idx] = attrData;
+  }
+};
+
+
+/**
+ * Token.attrGet(name)
+ *
+ * Get the value of attribute `name`, or null if it does not exist.
+ **/
+Token.prototype.attrGet = function attrGet(name) {
+  var idx = this.attrIndex(name), value = null;
+  if (idx >= 0) {
+    value = this.attrs[idx][1];
+  }
+  return value;
+};
+
+
+/**
+ * Token.attrJoin(name, value)
+ *
+ * Join value to existing attribute via space. Or create new attribute if not
+ * exists. Useful to operate with token classes.
+ **/
+Token.prototype.attrJoin = function attrJoin(name, value) {
+  var idx = this.attrIndex(name);
+
+  if (idx < 0) {
+    this.attrPush([ name, value ]);
+  } else {
+    this.attrs[idx][1] = this.attrs[idx][1] + ' ' + value;
+  }
+};
+
+
+module.exports = Token;
+
+
+/***/ }),
 /* 424 */
 /***/ (function(module, __unusedexports, __webpack_require__) {
 
@@ -22888,85 +23899,1650 @@ module.exports = function text_collapse(state) {
 /***/ (function(module, __unusedexports, __webpack_require__) {
 
 "use strict";
-/**
- * @description
- * HTTP code snippet generator for native XMLHttpRequest
- *
- * @author
- * @AhmadNassri
- *
- * for any questions or issues regarding the generated code snippet, please open an issue mentioning the author.
- */
 
 
+/*eslint-disable max-len,no-use-before-define*/
 
-var CodeBuilder = __webpack_require__(193)
+var common              = __webpack_require__(740);
+var YAMLException       = __webpack_require__(556);
+var Mark                = __webpack_require__(93);
+var DEFAULT_SAFE_SCHEMA = __webpack_require__(723);
+var DEFAULT_FULL_SCHEMA = __webpack_require__(910);
 
-module.exports = function (source, options) {
-  var opts = Object.assign({
-    indent: '  '
-  }, options)
 
-  var code = new CodeBuilder(opts.indent)
+var _hasOwnProperty = Object.prototype.hasOwnProperty;
 
-  var settings = {
-    async: true,
-    crossDomain: true,
-    url: source.fullUrl,
-    method: source.method,
-    headers: source.allHeaders
-  }
 
-  switch (source.postData.mimeType) {
-    case 'application/x-www-form-urlencoded':
-      settings.data = source.postData.paramsObj ? source.postData.paramsObj : source.postData.text
-      break
+var CONTEXT_FLOW_IN   = 1;
+var CONTEXT_FLOW_OUT  = 2;
+var CONTEXT_BLOCK_IN  = 3;
+var CONTEXT_BLOCK_OUT = 4;
 
-    case 'application/json':
-      settings.processData = false
-      settings.data = source.postData.text
-      break
 
-    case 'multipart/form-data':
-      code.push('const form = new FormData();')
+var CHOMPING_CLIP  = 1;
+var CHOMPING_STRIP = 2;
+var CHOMPING_KEEP  = 3;
 
-      source.postData.params.forEach(function (param) {
-        code.push('form.append(%s, %s);', JSON.stringify(param.name), JSON.stringify(param.value || param.fileName || ''))
-      })
 
-      settings.processData = false
-      settings.contentType = false
-      settings.mimeType = 'multipart/form-data'
-      settings.data = '[form]'
+var PATTERN_NON_PRINTABLE         = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x84\x86-\x9F\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:[^\uD800-\uDBFF]|^)[\uDC00-\uDFFF]/;
+var PATTERN_NON_ASCII_LINE_BREAKS = /[\x85\u2028\u2029]/;
+var PATTERN_FLOW_INDICATORS       = /[,\[\]\{\}]/;
+var PATTERN_TAG_HANDLE            = /^(?:!|!!|![a-z\-]+!)$/i;
+var PATTERN_TAG_URI               = /^(?:!|[^,\[\]\{\}])(?:%[0-9a-f]{2}|[0-9a-z\-#;\/\?:@&=\+\$,_\.!~\*'\(\)\[\]])*$/i;
 
-      // remove the contentType header
-      if (~settings.headers['content-type'].indexOf('boundary')) {
-        delete settings.headers['content-type']
-      }
-      code.blank()
-      break
 
-    default:
-      if (source.postData.text) {
-        settings.data = source.postData.text
-      }
-  }
+function _class(obj) { return Object.prototype.toString.call(obj); }
 
-  code.push('const settings = ' + JSON.stringify(settings, null, opts.indent).replace('"[form]"', 'form') + ';')
-      .blank()
-      .push('$.ajax(settings).done(function (response) {')
-      .push(1, 'console.log(response);')
-      .push('});')
-
-  return code.join()
+function is_EOL(c) {
+  return (c === 0x0A/* LF */) || (c === 0x0D/* CR */);
 }
 
-module.exports.info = {
-  key: 'jquery',
-  title: 'jQuery',
-  link: 'http://api.jquery.com/jquery.ajax/',
-  description: 'Perform an asynchronous HTTP (Ajax) requests with jQuery'
+function is_WHITE_SPACE(c) {
+  return (c === 0x09/* Tab */) || (c === 0x20/* Space */);
 }
+
+function is_WS_OR_EOL(c) {
+  return (c === 0x09/* Tab */) ||
+         (c === 0x20/* Space */) ||
+         (c === 0x0A/* LF */) ||
+         (c === 0x0D/* CR */);
+}
+
+function is_FLOW_INDICATOR(c) {
+  return c === 0x2C/* , */ ||
+         c === 0x5B/* [ */ ||
+         c === 0x5D/* ] */ ||
+         c === 0x7B/* { */ ||
+         c === 0x7D/* } */;
+}
+
+function fromHexCode(c) {
+  var lc;
+
+  if ((0x30/* 0 */ <= c) && (c <= 0x39/* 9 */)) {
+    return c - 0x30;
+  }
+
+  /*eslint-disable no-bitwise*/
+  lc = c | 0x20;
+
+  if ((0x61/* a */ <= lc) && (lc <= 0x66/* f */)) {
+    return lc - 0x61 + 10;
+  }
+
+  return -1;
+}
+
+function escapedHexLen(c) {
+  if (c === 0x78/* x */) { return 2; }
+  if (c === 0x75/* u */) { return 4; }
+  if (c === 0x55/* U */) { return 8; }
+  return 0;
+}
+
+function fromDecimalCode(c) {
+  if ((0x30/* 0 */ <= c) && (c <= 0x39/* 9 */)) {
+    return c - 0x30;
+  }
+
+  return -1;
+}
+
+function simpleEscapeSequence(c) {
+  /* eslint-disable indent */
+  return (c === 0x30/* 0 */) ? '\x00' :
+        (c === 0x61/* a */) ? '\x07' :
+        (c === 0x62/* b */) ? '\x08' :
+        (c === 0x74/* t */) ? '\x09' :
+        (c === 0x09/* Tab */) ? '\x09' :
+        (c === 0x6E/* n */) ? '\x0A' :
+        (c === 0x76/* v */) ? '\x0B' :
+        (c === 0x66/* f */) ? '\x0C' :
+        (c === 0x72/* r */) ? '\x0D' :
+        (c === 0x65/* e */) ? '\x1B' :
+        (c === 0x20/* Space */) ? ' ' :
+        (c === 0x22/* " */) ? '\x22' :
+        (c === 0x2F/* / */) ? '/' :
+        (c === 0x5C/* \ */) ? '\x5C' :
+        (c === 0x4E/* N */) ? '\x85' :
+        (c === 0x5F/* _ */) ? '\xA0' :
+        (c === 0x4C/* L */) ? '\u2028' :
+        (c === 0x50/* P */) ? '\u2029' : '';
+}
+
+function charFromCodepoint(c) {
+  if (c <= 0xFFFF) {
+    return String.fromCharCode(c);
+  }
+  // Encode UTF-16 surrogate pair
+  // https://en.wikipedia.org/wiki/UTF-16#Code_points_U.2B010000_to_U.2B10FFFF
+  return String.fromCharCode(
+    ((c - 0x010000) >> 10) + 0xD800,
+    ((c - 0x010000) & 0x03FF) + 0xDC00
+  );
+}
+
+var simpleEscapeCheck = new Array(256); // integer, for fast access
+var simpleEscapeMap = new Array(256);
+for (var i = 0; i < 256; i++) {
+  simpleEscapeCheck[i] = simpleEscapeSequence(i) ? 1 : 0;
+  simpleEscapeMap[i] = simpleEscapeSequence(i);
+}
+
+
+function State(input, options) {
+  this.input = input;
+
+  this.filename  = options['filename']  || null;
+  this.schema    = options['schema']    || DEFAULT_FULL_SCHEMA;
+  this.onWarning = options['onWarning'] || null;
+  this.legacy    = options['legacy']    || false;
+  this.json      = options['json']      || false;
+  this.listener  = options['listener']  || null;
+
+  this.implicitTypes = this.schema.compiledImplicit;
+  this.typeMap       = this.schema.compiledTypeMap;
+
+  this.length     = input.length;
+  this.position   = 0;
+  this.line       = 0;
+  this.lineStart  = 0;
+  this.lineIndent = 0;
+
+  this.documents = [];
+
+  /*
+  this.version;
+  this.checkLineBreaks;
+  this.tagMap;
+  this.anchorMap;
+  this.tag;
+  this.anchor;
+  this.kind;
+  this.result;*/
+
+}
+
+
+function generateError(state, message) {
+  return new YAMLException(
+    message,
+    new Mark(state.filename, state.input, state.position, state.line, (state.position - state.lineStart)));
+}
+
+function throwError(state, message) {
+  throw generateError(state, message);
+}
+
+function throwWarning(state, message) {
+  if (state.onWarning) {
+    state.onWarning.call(null, generateError(state, message));
+  }
+}
+
+
+var directiveHandlers = {
+
+  YAML: function handleYamlDirective(state, name, args) {
+
+    var match, major, minor;
+
+    if (state.version !== null) {
+      throwError(state, 'duplication of %YAML directive');
+    }
+
+    if (args.length !== 1) {
+      throwError(state, 'YAML directive accepts exactly one argument');
+    }
+
+    match = /^([0-9]+)\.([0-9]+)$/.exec(args[0]);
+
+    if (match === null) {
+      throwError(state, 'ill-formed argument of the YAML directive');
+    }
+
+    major = parseInt(match[1], 10);
+    minor = parseInt(match[2], 10);
+
+    if (major !== 1) {
+      throwError(state, 'unacceptable YAML version of the document');
+    }
+
+    state.version = args[0];
+    state.checkLineBreaks = (minor < 2);
+
+    if (minor !== 1 && minor !== 2) {
+      throwWarning(state, 'unsupported YAML version of the document');
+    }
+  },
+
+  TAG: function handleTagDirective(state, name, args) {
+
+    var handle, prefix;
+
+    if (args.length !== 2) {
+      throwError(state, 'TAG directive accepts exactly two arguments');
+    }
+
+    handle = args[0];
+    prefix = args[1];
+
+    if (!PATTERN_TAG_HANDLE.test(handle)) {
+      throwError(state, 'ill-formed tag handle (first argument) of the TAG directive');
+    }
+
+    if (_hasOwnProperty.call(state.tagMap, handle)) {
+      throwError(state, 'there is a previously declared suffix for "' + handle + '" tag handle');
+    }
+
+    if (!PATTERN_TAG_URI.test(prefix)) {
+      throwError(state, 'ill-formed tag prefix (second argument) of the TAG directive');
+    }
+
+    state.tagMap[handle] = prefix;
+  }
+};
+
+
+function captureSegment(state, start, end, checkJson) {
+  var _position, _length, _character, _result;
+
+  if (start < end) {
+    _result = state.input.slice(start, end);
+
+    if (checkJson) {
+      for (_position = 0, _length = _result.length; _position < _length; _position += 1) {
+        _character = _result.charCodeAt(_position);
+        if (!(_character === 0x09 ||
+              (0x20 <= _character && _character <= 0x10FFFF))) {
+          throwError(state, 'expected valid JSON character');
+        }
+      }
+    } else if (PATTERN_NON_PRINTABLE.test(_result)) {
+      throwError(state, 'the stream contains non-printable characters');
+    }
+
+    state.result += _result;
+  }
+}
+
+function mergeMappings(state, destination, source, overridableKeys) {
+  var sourceKeys, key, index, quantity;
+
+  if (!common.isObject(source)) {
+    throwError(state, 'cannot merge mappings; the provided source object is unacceptable');
+  }
+
+  sourceKeys = Object.keys(source);
+
+  for (index = 0, quantity = sourceKeys.length; index < quantity; index += 1) {
+    key = sourceKeys[index];
+
+    if (!_hasOwnProperty.call(destination, key)) {
+      destination[key] = source[key];
+      overridableKeys[key] = true;
+    }
+  }
+}
+
+function storeMappingPair(state, _result, overridableKeys, keyTag, keyNode, valueNode, startLine, startPos) {
+  var index, quantity;
+
+  // The output is a plain object here, so keys can only be strings.
+  // We need to convert keyNode to a string, but doing so can hang the process
+  // (deeply nested arrays that explode exponentially using aliases).
+  if (Array.isArray(keyNode)) {
+    keyNode = Array.prototype.slice.call(keyNode);
+
+    for (index = 0, quantity = keyNode.length; index < quantity; index += 1) {
+      if (Array.isArray(keyNode[index])) {
+        throwError(state, 'nested arrays are not supported inside keys');
+      }
+
+      if (typeof keyNode === 'object' && _class(keyNode[index]) === '[object Object]') {
+        keyNode[index] = '[object Object]';
+      }
+    }
+  }
+
+  // Avoid code execution in load() via toString property
+  // (still use its own toString for arrays, timestamps,
+  // and whatever user schema extensions happen to have @@toStringTag)
+  if (typeof keyNode === 'object' && _class(keyNode) === '[object Object]') {
+    keyNode = '[object Object]';
+  }
+
+
+  keyNode = String(keyNode);
+
+  if (_result === null) {
+    _result = {};
+  }
+
+  if (keyTag === 'tag:yaml.org,2002:merge') {
+    if (Array.isArray(valueNode)) {
+      for (index = 0, quantity = valueNode.length; index < quantity; index += 1) {
+        mergeMappings(state, _result, valueNode[index], overridableKeys);
+      }
+    } else {
+      mergeMappings(state, _result, valueNode, overridableKeys);
+    }
+  } else {
+    if (!state.json &&
+        !_hasOwnProperty.call(overridableKeys, keyNode) &&
+        _hasOwnProperty.call(_result, keyNode)) {
+      state.line = startLine || state.line;
+      state.position = startPos || state.position;
+      throwError(state, 'duplicated mapping key');
+    }
+    _result[keyNode] = valueNode;
+    delete overridableKeys[keyNode];
+  }
+
+  return _result;
+}
+
+function readLineBreak(state) {
+  var ch;
+
+  ch = state.input.charCodeAt(state.position);
+
+  if (ch === 0x0A/* LF */) {
+    state.position++;
+  } else if (ch === 0x0D/* CR */) {
+    state.position++;
+    if (state.input.charCodeAt(state.position) === 0x0A/* LF */) {
+      state.position++;
+    }
+  } else {
+    throwError(state, 'a line break is expected');
+  }
+
+  state.line += 1;
+  state.lineStart = state.position;
+}
+
+function skipSeparationSpace(state, allowComments, checkIndent) {
+  var lineBreaks = 0,
+      ch = state.input.charCodeAt(state.position);
+
+  while (ch !== 0) {
+    while (is_WHITE_SPACE(ch)) {
+      ch = state.input.charCodeAt(++state.position);
+    }
+
+    if (allowComments && ch === 0x23/* # */) {
+      do {
+        ch = state.input.charCodeAt(++state.position);
+      } while (ch !== 0x0A/* LF */ && ch !== 0x0D/* CR */ && ch !== 0);
+    }
+
+    if (is_EOL(ch)) {
+      readLineBreak(state);
+
+      ch = state.input.charCodeAt(state.position);
+      lineBreaks++;
+      state.lineIndent = 0;
+
+      while (ch === 0x20/* Space */) {
+        state.lineIndent++;
+        ch = state.input.charCodeAt(++state.position);
+      }
+    } else {
+      break;
+    }
+  }
+
+  if (checkIndent !== -1 && lineBreaks !== 0 && state.lineIndent < checkIndent) {
+    throwWarning(state, 'deficient indentation');
+  }
+
+  return lineBreaks;
+}
+
+function testDocumentSeparator(state) {
+  var _position = state.position,
+      ch;
+
+  ch = state.input.charCodeAt(_position);
+
+  // Condition state.position === state.lineStart is tested
+  // in parent on each call, for efficiency. No needs to test here again.
+  if ((ch === 0x2D/* - */ || ch === 0x2E/* . */) &&
+      ch === state.input.charCodeAt(_position + 1) &&
+      ch === state.input.charCodeAt(_position + 2)) {
+
+    _position += 3;
+
+    ch = state.input.charCodeAt(_position);
+
+    if (ch === 0 || is_WS_OR_EOL(ch)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function writeFoldedLines(state, count) {
+  if (count === 1) {
+    state.result += ' ';
+  } else if (count > 1) {
+    state.result += common.repeat('\n', count - 1);
+  }
+}
+
+
+function readPlainScalar(state, nodeIndent, withinFlowCollection) {
+  var preceding,
+      following,
+      captureStart,
+      captureEnd,
+      hasPendingContent,
+      _line,
+      _lineStart,
+      _lineIndent,
+      _kind = state.kind,
+      _result = state.result,
+      ch;
+
+  ch = state.input.charCodeAt(state.position);
+
+  if (is_WS_OR_EOL(ch)      ||
+      is_FLOW_INDICATOR(ch) ||
+      ch === 0x23/* # */    ||
+      ch === 0x26/* & */    ||
+      ch === 0x2A/* * */    ||
+      ch === 0x21/* ! */    ||
+      ch === 0x7C/* | */    ||
+      ch === 0x3E/* > */    ||
+      ch === 0x27/* ' */    ||
+      ch === 0x22/* " */    ||
+      ch === 0x25/* % */    ||
+      ch === 0x40/* @ */    ||
+      ch === 0x60/* ` */) {
+    return false;
+  }
+
+  if (ch === 0x3F/* ? */ || ch === 0x2D/* - */) {
+    following = state.input.charCodeAt(state.position + 1);
+
+    if (is_WS_OR_EOL(following) ||
+        withinFlowCollection && is_FLOW_INDICATOR(following)) {
+      return false;
+    }
+  }
+
+  state.kind = 'scalar';
+  state.result = '';
+  captureStart = captureEnd = state.position;
+  hasPendingContent = false;
+
+  while (ch !== 0) {
+    if (ch === 0x3A/* : */) {
+      following = state.input.charCodeAt(state.position + 1);
+
+      if (is_WS_OR_EOL(following) ||
+          withinFlowCollection && is_FLOW_INDICATOR(following)) {
+        break;
+      }
+
+    } else if (ch === 0x23/* # */) {
+      preceding = state.input.charCodeAt(state.position - 1);
+
+      if (is_WS_OR_EOL(preceding)) {
+        break;
+      }
+
+    } else if ((state.position === state.lineStart && testDocumentSeparator(state)) ||
+               withinFlowCollection && is_FLOW_INDICATOR(ch)) {
+      break;
+
+    } else if (is_EOL(ch)) {
+      _line = state.line;
+      _lineStart = state.lineStart;
+      _lineIndent = state.lineIndent;
+      skipSeparationSpace(state, false, -1);
+
+      if (state.lineIndent >= nodeIndent) {
+        hasPendingContent = true;
+        ch = state.input.charCodeAt(state.position);
+        continue;
+      } else {
+        state.position = captureEnd;
+        state.line = _line;
+        state.lineStart = _lineStart;
+        state.lineIndent = _lineIndent;
+        break;
+      }
+    }
+
+    if (hasPendingContent) {
+      captureSegment(state, captureStart, captureEnd, false);
+      writeFoldedLines(state, state.line - _line);
+      captureStart = captureEnd = state.position;
+      hasPendingContent = false;
+    }
+
+    if (!is_WHITE_SPACE(ch)) {
+      captureEnd = state.position + 1;
+    }
+
+    ch = state.input.charCodeAt(++state.position);
+  }
+
+  captureSegment(state, captureStart, captureEnd, false);
+
+  if (state.result) {
+    return true;
+  }
+
+  state.kind = _kind;
+  state.result = _result;
+  return false;
+}
+
+function readSingleQuotedScalar(state, nodeIndent) {
+  var ch,
+      captureStart, captureEnd;
+
+  ch = state.input.charCodeAt(state.position);
+
+  if (ch !== 0x27/* ' */) {
+    return false;
+  }
+
+  state.kind = 'scalar';
+  state.result = '';
+  state.position++;
+  captureStart = captureEnd = state.position;
+
+  while ((ch = state.input.charCodeAt(state.position)) !== 0) {
+    if (ch === 0x27/* ' */) {
+      captureSegment(state, captureStart, state.position, true);
+      ch = state.input.charCodeAt(++state.position);
+
+      if (ch === 0x27/* ' */) {
+        captureStart = state.position;
+        state.position++;
+        captureEnd = state.position;
+      } else {
+        return true;
+      }
+
+    } else if (is_EOL(ch)) {
+      captureSegment(state, captureStart, captureEnd, true);
+      writeFoldedLines(state, skipSeparationSpace(state, false, nodeIndent));
+      captureStart = captureEnd = state.position;
+
+    } else if (state.position === state.lineStart && testDocumentSeparator(state)) {
+      throwError(state, 'unexpected end of the document within a single quoted scalar');
+
+    } else {
+      state.position++;
+      captureEnd = state.position;
+    }
+  }
+
+  throwError(state, 'unexpected end of the stream within a single quoted scalar');
+}
+
+function readDoubleQuotedScalar(state, nodeIndent) {
+  var captureStart,
+      captureEnd,
+      hexLength,
+      hexResult,
+      tmp,
+      ch;
+
+  ch = state.input.charCodeAt(state.position);
+
+  if (ch !== 0x22/* " */) {
+    return false;
+  }
+
+  state.kind = 'scalar';
+  state.result = '';
+  state.position++;
+  captureStart = captureEnd = state.position;
+
+  while ((ch = state.input.charCodeAt(state.position)) !== 0) {
+    if (ch === 0x22/* " */) {
+      captureSegment(state, captureStart, state.position, true);
+      state.position++;
+      return true;
+
+    } else if (ch === 0x5C/* \ */) {
+      captureSegment(state, captureStart, state.position, true);
+      ch = state.input.charCodeAt(++state.position);
+
+      if (is_EOL(ch)) {
+        skipSeparationSpace(state, false, nodeIndent);
+
+        // TODO: rework to inline fn with no type cast?
+      } else if (ch < 256 && simpleEscapeCheck[ch]) {
+        state.result += simpleEscapeMap[ch];
+        state.position++;
+
+      } else if ((tmp = escapedHexLen(ch)) > 0) {
+        hexLength = tmp;
+        hexResult = 0;
+
+        for (; hexLength > 0; hexLength--) {
+          ch = state.input.charCodeAt(++state.position);
+
+          if ((tmp = fromHexCode(ch)) >= 0) {
+            hexResult = (hexResult << 4) + tmp;
+
+          } else {
+            throwError(state, 'expected hexadecimal character');
+          }
+        }
+
+        state.result += charFromCodepoint(hexResult);
+
+        state.position++;
+
+      } else {
+        throwError(state, 'unknown escape sequence');
+      }
+
+      captureStart = captureEnd = state.position;
+
+    } else if (is_EOL(ch)) {
+      captureSegment(state, captureStart, captureEnd, true);
+      writeFoldedLines(state, skipSeparationSpace(state, false, nodeIndent));
+      captureStart = captureEnd = state.position;
+
+    } else if (state.position === state.lineStart && testDocumentSeparator(state)) {
+      throwError(state, 'unexpected end of the document within a double quoted scalar');
+
+    } else {
+      state.position++;
+      captureEnd = state.position;
+    }
+  }
+
+  throwError(state, 'unexpected end of the stream within a double quoted scalar');
+}
+
+function readFlowCollection(state, nodeIndent) {
+  var readNext = true,
+      _line,
+      _tag     = state.tag,
+      _result,
+      _anchor  = state.anchor,
+      following,
+      terminator,
+      isPair,
+      isExplicitPair,
+      isMapping,
+      overridableKeys = {},
+      keyNode,
+      keyTag,
+      valueNode,
+      ch;
+
+  ch = state.input.charCodeAt(state.position);
+
+  if (ch === 0x5B/* [ */) {
+    terminator = 0x5D;/* ] */
+    isMapping = false;
+    _result = [];
+  } else if (ch === 0x7B/* { */) {
+    terminator = 0x7D;/* } */
+    isMapping = true;
+    _result = {};
+  } else {
+    return false;
+  }
+
+  if (state.anchor !== null) {
+    state.anchorMap[state.anchor] = _result;
+  }
+
+  ch = state.input.charCodeAt(++state.position);
+
+  while (ch !== 0) {
+    skipSeparationSpace(state, true, nodeIndent);
+
+    ch = state.input.charCodeAt(state.position);
+
+    if (ch === terminator) {
+      state.position++;
+      state.tag = _tag;
+      state.anchor = _anchor;
+      state.kind = isMapping ? 'mapping' : 'sequence';
+      state.result = _result;
+      return true;
+    } else if (!readNext) {
+      throwError(state, 'missed comma between flow collection entries');
+    }
+
+    keyTag = keyNode = valueNode = null;
+    isPair = isExplicitPair = false;
+
+    if (ch === 0x3F/* ? */) {
+      following = state.input.charCodeAt(state.position + 1);
+
+      if (is_WS_OR_EOL(following)) {
+        isPair = isExplicitPair = true;
+        state.position++;
+        skipSeparationSpace(state, true, nodeIndent);
+      }
+    }
+
+    _line = state.line;
+    composeNode(state, nodeIndent, CONTEXT_FLOW_IN, false, true);
+    keyTag = state.tag;
+    keyNode = state.result;
+    skipSeparationSpace(state, true, nodeIndent);
+
+    ch = state.input.charCodeAt(state.position);
+
+    if ((isExplicitPair || state.line === _line) && ch === 0x3A/* : */) {
+      isPair = true;
+      ch = state.input.charCodeAt(++state.position);
+      skipSeparationSpace(state, true, nodeIndent);
+      composeNode(state, nodeIndent, CONTEXT_FLOW_IN, false, true);
+      valueNode = state.result;
+    }
+
+    if (isMapping) {
+      storeMappingPair(state, _result, overridableKeys, keyTag, keyNode, valueNode);
+    } else if (isPair) {
+      _result.push(storeMappingPair(state, null, overridableKeys, keyTag, keyNode, valueNode));
+    } else {
+      _result.push(keyNode);
+    }
+
+    skipSeparationSpace(state, true, nodeIndent);
+
+    ch = state.input.charCodeAt(state.position);
+
+    if (ch === 0x2C/* , */) {
+      readNext = true;
+      ch = state.input.charCodeAt(++state.position);
+    } else {
+      readNext = false;
+    }
+  }
+
+  throwError(state, 'unexpected end of the stream within a flow collection');
+}
+
+function readBlockScalar(state, nodeIndent) {
+  var captureStart,
+      folding,
+      chomping       = CHOMPING_CLIP,
+      didReadContent = false,
+      detectedIndent = false,
+      textIndent     = nodeIndent,
+      emptyLines     = 0,
+      atMoreIndented = false,
+      tmp,
+      ch;
+
+  ch = state.input.charCodeAt(state.position);
+
+  if (ch === 0x7C/* | */) {
+    folding = false;
+  } else if (ch === 0x3E/* > */) {
+    folding = true;
+  } else {
+    return false;
+  }
+
+  state.kind = 'scalar';
+  state.result = '';
+
+  while (ch !== 0) {
+    ch = state.input.charCodeAt(++state.position);
+
+    if (ch === 0x2B/* + */ || ch === 0x2D/* - */) {
+      if (CHOMPING_CLIP === chomping) {
+        chomping = (ch === 0x2B/* + */) ? CHOMPING_KEEP : CHOMPING_STRIP;
+      } else {
+        throwError(state, 'repeat of a chomping mode identifier');
+      }
+
+    } else if ((tmp = fromDecimalCode(ch)) >= 0) {
+      if (tmp === 0) {
+        throwError(state, 'bad explicit indentation width of a block scalar; it cannot be less than one');
+      } else if (!detectedIndent) {
+        textIndent = nodeIndent + tmp - 1;
+        detectedIndent = true;
+      } else {
+        throwError(state, 'repeat of an indentation width identifier');
+      }
+
+    } else {
+      break;
+    }
+  }
+
+  if (is_WHITE_SPACE(ch)) {
+    do { ch = state.input.charCodeAt(++state.position); }
+    while (is_WHITE_SPACE(ch));
+
+    if (ch === 0x23/* # */) {
+      do { ch = state.input.charCodeAt(++state.position); }
+      while (!is_EOL(ch) && (ch !== 0));
+    }
+  }
+
+  while (ch !== 0) {
+    readLineBreak(state);
+    state.lineIndent = 0;
+
+    ch = state.input.charCodeAt(state.position);
+
+    while ((!detectedIndent || state.lineIndent < textIndent) &&
+           (ch === 0x20/* Space */)) {
+      state.lineIndent++;
+      ch = state.input.charCodeAt(++state.position);
+    }
+
+    if (!detectedIndent && state.lineIndent > textIndent) {
+      textIndent = state.lineIndent;
+    }
+
+    if (is_EOL(ch)) {
+      emptyLines++;
+      continue;
+    }
+
+    // End of the scalar.
+    if (state.lineIndent < textIndent) {
+
+      // Perform the chomping.
+      if (chomping === CHOMPING_KEEP) {
+        state.result += common.repeat('\n', didReadContent ? 1 + emptyLines : emptyLines);
+      } else if (chomping === CHOMPING_CLIP) {
+        if (didReadContent) { // i.e. only if the scalar is not empty.
+          state.result += '\n';
+        }
+      }
+
+      // Break this `while` cycle and go to the funciton's epilogue.
+      break;
+    }
+
+    // Folded style: use fancy rules to handle line breaks.
+    if (folding) {
+
+      // Lines starting with white space characters (more-indented lines) are not folded.
+      if (is_WHITE_SPACE(ch)) {
+        atMoreIndented = true;
+        // except for the first content line (cf. Example 8.1)
+        state.result += common.repeat('\n', didReadContent ? 1 + emptyLines : emptyLines);
+
+      // End of more-indented block.
+      } else if (atMoreIndented) {
+        atMoreIndented = false;
+        state.result += common.repeat('\n', emptyLines + 1);
+
+      // Just one line break - perceive as the same line.
+      } else if (emptyLines === 0) {
+        if (didReadContent) { // i.e. only if we have already read some scalar content.
+          state.result += ' ';
+        }
+
+      // Several line breaks - perceive as different lines.
+      } else {
+        state.result += common.repeat('\n', emptyLines);
+      }
+
+    // Literal style: just add exact number of line breaks between content lines.
+    } else {
+      // Keep all line breaks except the header line break.
+      state.result += common.repeat('\n', didReadContent ? 1 + emptyLines : emptyLines);
+    }
+
+    didReadContent = true;
+    detectedIndent = true;
+    emptyLines = 0;
+    captureStart = state.position;
+
+    while (!is_EOL(ch) && (ch !== 0)) {
+      ch = state.input.charCodeAt(++state.position);
+    }
+
+    captureSegment(state, captureStart, state.position, false);
+  }
+
+  return true;
+}
+
+function readBlockSequence(state, nodeIndent) {
+  var _line,
+      _tag      = state.tag,
+      _anchor   = state.anchor,
+      _result   = [],
+      following,
+      detected  = false,
+      ch;
+
+  if (state.anchor !== null) {
+    state.anchorMap[state.anchor] = _result;
+  }
+
+  ch = state.input.charCodeAt(state.position);
+
+  while (ch !== 0) {
+
+    if (ch !== 0x2D/* - */) {
+      break;
+    }
+
+    following = state.input.charCodeAt(state.position + 1);
+
+    if (!is_WS_OR_EOL(following)) {
+      break;
+    }
+
+    detected = true;
+    state.position++;
+
+    if (skipSeparationSpace(state, true, -1)) {
+      if (state.lineIndent <= nodeIndent) {
+        _result.push(null);
+        ch = state.input.charCodeAt(state.position);
+        continue;
+      }
+    }
+
+    _line = state.line;
+    composeNode(state, nodeIndent, CONTEXT_BLOCK_IN, false, true);
+    _result.push(state.result);
+    skipSeparationSpace(state, true, -1);
+
+    ch = state.input.charCodeAt(state.position);
+
+    if ((state.line === _line || state.lineIndent > nodeIndent) && (ch !== 0)) {
+      throwError(state, 'bad indentation of a sequence entry');
+    } else if (state.lineIndent < nodeIndent) {
+      break;
+    }
+  }
+
+  if (detected) {
+    state.tag = _tag;
+    state.anchor = _anchor;
+    state.kind = 'sequence';
+    state.result = _result;
+    return true;
+  }
+  return false;
+}
+
+function readBlockMapping(state, nodeIndent, flowIndent) {
+  var following,
+      allowCompact,
+      _line,
+      _pos,
+      _tag          = state.tag,
+      _anchor       = state.anchor,
+      _result       = {},
+      overridableKeys = {},
+      keyTag        = null,
+      keyNode       = null,
+      valueNode     = null,
+      atExplicitKey = false,
+      detected      = false,
+      ch;
+
+  if (state.anchor !== null) {
+    state.anchorMap[state.anchor] = _result;
+  }
+
+  ch = state.input.charCodeAt(state.position);
+
+  while (ch !== 0) {
+    following = state.input.charCodeAt(state.position + 1);
+    _line = state.line; // Save the current line.
+    _pos = state.position;
+
+    //
+    // Explicit notation case. There are two separate blocks:
+    // first for the key (denoted by "?") and second for the value (denoted by ":")
+    //
+    if ((ch === 0x3F/* ? */ || ch === 0x3A/* : */) && is_WS_OR_EOL(following)) {
+
+      if (ch === 0x3F/* ? */) {
+        if (atExplicitKey) {
+          storeMappingPair(state, _result, overridableKeys, keyTag, keyNode, null);
+          keyTag = keyNode = valueNode = null;
+        }
+
+        detected = true;
+        atExplicitKey = true;
+        allowCompact = true;
+
+      } else if (atExplicitKey) {
+        // i.e. 0x3A/* : */ === character after the explicit key.
+        atExplicitKey = false;
+        allowCompact = true;
+
+      } else {
+        throwError(state, 'incomplete explicit mapping pair; a key node is missed; or followed by a non-tabulated empty line');
+      }
+
+      state.position += 1;
+      ch = following;
+
+    //
+    // Implicit notation case. Flow-style node as the key first, then ":", and the value.
+    //
+    } else if (composeNode(state, flowIndent, CONTEXT_FLOW_OUT, false, true)) {
+
+      if (state.line === _line) {
+        ch = state.input.charCodeAt(state.position);
+
+        while (is_WHITE_SPACE(ch)) {
+          ch = state.input.charCodeAt(++state.position);
+        }
+
+        if (ch === 0x3A/* : */) {
+          ch = state.input.charCodeAt(++state.position);
+
+          if (!is_WS_OR_EOL(ch)) {
+            throwError(state, 'a whitespace character is expected after the key-value separator within a block mapping');
+          }
+
+          if (atExplicitKey) {
+            storeMappingPair(state, _result, overridableKeys, keyTag, keyNode, null);
+            keyTag = keyNode = valueNode = null;
+          }
+
+          detected = true;
+          atExplicitKey = false;
+          allowCompact = false;
+          keyTag = state.tag;
+          keyNode = state.result;
+
+        } else if (detected) {
+          throwError(state, 'can not read an implicit mapping pair; a colon is missed');
+
+        } else {
+          state.tag = _tag;
+          state.anchor = _anchor;
+          return true; // Keep the result of `composeNode`.
+        }
+
+      } else if (detected) {
+        throwError(state, 'can not read a block mapping entry; a multiline key may not be an implicit key');
+
+      } else {
+        state.tag = _tag;
+        state.anchor = _anchor;
+        return true; // Keep the result of `composeNode`.
+      }
+
+    } else {
+      break; // Reading is done. Go to the epilogue.
+    }
+
+    //
+    // Common reading code for both explicit and implicit notations.
+    //
+    if (state.line === _line || state.lineIndent > nodeIndent) {
+      if (composeNode(state, nodeIndent, CONTEXT_BLOCK_OUT, true, allowCompact)) {
+        if (atExplicitKey) {
+          keyNode = state.result;
+        } else {
+          valueNode = state.result;
+        }
+      }
+
+      if (!atExplicitKey) {
+        storeMappingPair(state, _result, overridableKeys, keyTag, keyNode, valueNode, _line, _pos);
+        keyTag = keyNode = valueNode = null;
+      }
+
+      skipSeparationSpace(state, true, -1);
+      ch = state.input.charCodeAt(state.position);
+    }
+
+    if (state.lineIndent > nodeIndent && (ch !== 0)) {
+      throwError(state, 'bad indentation of a mapping entry');
+    } else if (state.lineIndent < nodeIndent) {
+      break;
+    }
+  }
+
+  //
+  // Epilogue.
+  //
+
+  // Special case: last mapping's node contains only the key in explicit notation.
+  if (atExplicitKey) {
+    storeMappingPair(state, _result, overridableKeys, keyTag, keyNode, null);
+  }
+
+  // Expose the resulting mapping.
+  if (detected) {
+    state.tag = _tag;
+    state.anchor = _anchor;
+    state.kind = 'mapping';
+    state.result = _result;
+  }
+
+  return detected;
+}
+
+function readTagProperty(state) {
+  var _position,
+      isVerbatim = false,
+      isNamed    = false,
+      tagHandle,
+      tagName,
+      ch;
+
+  ch = state.input.charCodeAt(state.position);
+
+  if (ch !== 0x21/* ! */) return false;
+
+  if (state.tag !== null) {
+    throwError(state, 'duplication of a tag property');
+  }
+
+  ch = state.input.charCodeAt(++state.position);
+
+  if (ch === 0x3C/* < */) {
+    isVerbatim = true;
+    ch = state.input.charCodeAt(++state.position);
+
+  } else if (ch === 0x21/* ! */) {
+    isNamed = true;
+    tagHandle = '!!';
+    ch = state.input.charCodeAt(++state.position);
+
+  } else {
+    tagHandle = '!';
+  }
+
+  _position = state.position;
+
+  if (isVerbatim) {
+    do { ch = state.input.charCodeAt(++state.position); }
+    while (ch !== 0 && ch !== 0x3E/* > */);
+
+    if (state.position < state.length) {
+      tagName = state.input.slice(_position, state.position);
+      ch = state.input.charCodeAt(++state.position);
+    } else {
+      throwError(state, 'unexpected end of the stream within a verbatim tag');
+    }
+  } else {
+    while (ch !== 0 && !is_WS_OR_EOL(ch)) {
+
+      if (ch === 0x21/* ! */) {
+        if (!isNamed) {
+          tagHandle = state.input.slice(_position - 1, state.position + 1);
+
+          if (!PATTERN_TAG_HANDLE.test(tagHandle)) {
+            throwError(state, 'named tag handle cannot contain such characters');
+          }
+
+          isNamed = true;
+          _position = state.position + 1;
+        } else {
+          throwError(state, 'tag suffix cannot contain exclamation marks');
+        }
+      }
+
+      ch = state.input.charCodeAt(++state.position);
+    }
+
+    tagName = state.input.slice(_position, state.position);
+
+    if (PATTERN_FLOW_INDICATORS.test(tagName)) {
+      throwError(state, 'tag suffix cannot contain flow indicator characters');
+    }
+  }
+
+  if (tagName && !PATTERN_TAG_URI.test(tagName)) {
+    throwError(state, 'tag name cannot contain such characters: ' + tagName);
+  }
+
+  if (isVerbatim) {
+    state.tag = tagName;
+
+  } else if (_hasOwnProperty.call(state.tagMap, tagHandle)) {
+    state.tag = state.tagMap[tagHandle] + tagName;
+
+  } else if (tagHandle === '!') {
+    state.tag = '!' + tagName;
+
+  } else if (tagHandle === '!!') {
+    state.tag = 'tag:yaml.org,2002:' + tagName;
+
+  } else {
+    throwError(state, 'undeclared tag handle "' + tagHandle + '"');
+  }
+
+  return true;
+}
+
+function readAnchorProperty(state) {
+  var _position,
+      ch;
+
+  ch = state.input.charCodeAt(state.position);
+
+  if (ch !== 0x26/* & */) return false;
+
+  if (state.anchor !== null) {
+    throwError(state, 'duplication of an anchor property');
+  }
+
+  ch = state.input.charCodeAt(++state.position);
+  _position = state.position;
+
+  while (ch !== 0 && !is_WS_OR_EOL(ch) && !is_FLOW_INDICATOR(ch)) {
+    ch = state.input.charCodeAt(++state.position);
+  }
+
+  if (state.position === _position) {
+    throwError(state, 'name of an anchor node must contain at least one character');
+  }
+
+  state.anchor = state.input.slice(_position, state.position);
+  return true;
+}
+
+function readAlias(state) {
+  var _position, alias,
+      ch;
+
+  ch = state.input.charCodeAt(state.position);
+
+  if (ch !== 0x2A/* * */) return false;
+
+  ch = state.input.charCodeAt(++state.position);
+  _position = state.position;
+
+  while (ch !== 0 && !is_WS_OR_EOL(ch) && !is_FLOW_INDICATOR(ch)) {
+    ch = state.input.charCodeAt(++state.position);
+  }
+
+  if (state.position === _position) {
+    throwError(state, 'name of an alias node must contain at least one character');
+  }
+
+  alias = state.input.slice(_position, state.position);
+
+  if (!state.anchorMap.hasOwnProperty(alias)) {
+    throwError(state, 'unidentified alias "' + alias + '"');
+  }
+
+  state.result = state.anchorMap[alias];
+  skipSeparationSpace(state, true, -1);
+  return true;
+}
+
+function composeNode(state, parentIndent, nodeContext, allowToSeek, allowCompact) {
+  var allowBlockStyles,
+      allowBlockScalars,
+      allowBlockCollections,
+      indentStatus = 1, // 1: this>parent, 0: this=parent, -1: this<parent
+      atNewLine  = false,
+      hasContent = false,
+      typeIndex,
+      typeQuantity,
+      type,
+      flowIndent,
+      blockIndent;
+
+  if (state.listener !== null) {
+    state.listener('open', state);
+  }
+
+  state.tag    = null;
+  state.anchor = null;
+  state.kind   = null;
+  state.result = null;
+
+  allowBlockStyles = allowBlockScalars = allowBlockCollections =
+    CONTEXT_BLOCK_OUT === nodeContext ||
+    CONTEXT_BLOCK_IN  === nodeContext;
+
+  if (allowToSeek) {
+    if (skipSeparationSpace(state, true, -1)) {
+      atNewLine = true;
+
+      if (state.lineIndent > parentIndent) {
+        indentStatus = 1;
+      } else if (state.lineIndent === parentIndent) {
+        indentStatus = 0;
+      } else if (state.lineIndent < parentIndent) {
+        indentStatus = -1;
+      }
+    }
+  }
+
+  if (indentStatus === 1) {
+    while (readTagProperty(state) || readAnchorProperty(state)) {
+      if (skipSeparationSpace(state, true, -1)) {
+        atNewLine = true;
+        allowBlockCollections = allowBlockStyles;
+
+        if (state.lineIndent > parentIndent) {
+          indentStatus = 1;
+        } else if (state.lineIndent === parentIndent) {
+          indentStatus = 0;
+        } else if (state.lineIndent < parentIndent) {
+          indentStatus = -1;
+        }
+      } else {
+        allowBlockCollections = false;
+      }
+    }
+  }
+
+  if (allowBlockCollections) {
+    allowBlockCollections = atNewLine || allowCompact;
+  }
+
+  if (indentStatus === 1 || CONTEXT_BLOCK_OUT === nodeContext) {
+    if (CONTEXT_FLOW_IN === nodeContext || CONTEXT_FLOW_OUT === nodeContext) {
+      flowIndent = parentIndent;
+    } else {
+      flowIndent = parentIndent + 1;
+    }
+
+    blockIndent = state.position - state.lineStart;
+
+    if (indentStatus === 1) {
+      if (allowBlockCollections &&
+          (readBlockSequence(state, blockIndent) ||
+           readBlockMapping(state, blockIndent, flowIndent)) ||
+          readFlowCollection(state, flowIndent)) {
+        hasContent = true;
+      } else {
+        if ((allowBlockScalars && readBlockScalar(state, flowIndent)) ||
+            readSingleQuotedScalar(state, flowIndent) ||
+            readDoubleQuotedScalar(state, flowIndent)) {
+          hasContent = true;
+
+        } else if (readAlias(state)) {
+          hasContent = true;
+
+          if (state.tag !== null || state.anchor !== null) {
+            throwError(state, 'alias node should not have any properties');
+          }
+
+        } else if (readPlainScalar(state, flowIndent, CONTEXT_FLOW_IN === nodeContext)) {
+          hasContent = true;
+
+          if (state.tag === null) {
+            state.tag = '?';
+          }
+        }
+
+        if (state.anchor !== null) {
+          state.anchorMap[state.anchor] = state.result;
+        }
+      }
+    } else if (indentStatus === 0) {
+      // Special case: block sequences are allowed to have same indentation level as the parent.
+      // http://www.yaml.org/spec/1.2/spec.html#id2799784
+      hasContent = allowBlockCollections && readBlockSequence(state, blockIndent);
+    }
+  }
+
+  if (state.tag !== null && state.tag !== '!') {
+    if (state.tag === '?') {
+      // Implicit resolving is not allowed for non-scalar types, and '?'
+      // non-specific tag is only automatically assigned to plain scalars.
+      //
+      // We only need to check kind conformity in case user explicitly assigns '?'
+      // tag, for example like this: "!<?> [0]"
+      //
+      if (state.result !== null && state.kind !== 'scalar') {
+        throwError(state, 'unacceptable node kind for !<?> tag; it should be "scalar", not "' + state.kind + '"');
+      }
+
+      for (typeIndex = 0, typeQuantity = state.implicitTypes.length; typeIndex < typeQuantity; typeIndex += 1) {
+        type = state.implicitTypes[typeIndex];
+
+        if (type.resolve(state.result)) { // `state.result` updated in resolver if matched
+          state.result = type.construct(state.result);
+          state.tag = type.tag;
+          if (state.anchor !== null) {
+            state.anchorMap[state.anchor] = state.result;
+          }
+          break;
+        }
+      }
+    } else if (_hasOwnProperty.call(state.typeMap[state.kind || 'fallback'], state.tag)) {
+      type = state.typeMap[state.kind || 'fallback'][state.tag];
+
+      if (state.result !== null && type.kind !== state.kind) {
+        throwError(state, 'unacceptable node kind for !<' + state.tag + '> tag; it should be "' + type.kind + '", not "' + state.kind + '"');
+      }
+
+      if (!type.resolve(state.result)) { // `state.result` updated in resolver if matched
+        throwError(state, 'cannot resolve a node with !<' + state.tag + '> explicit tag');
+      } else {
+        state.result = type.construct(state.result);
+        if (state.anchor !== null) {
+          state.anchorMap[state.anchor] = state.result;
+        }
+      }
+    } else {
+      throwError(state, 'unknown tag !<' + state.tag + '>');
+    }
+  }
+
+  if (state.listener !== null) {
+    state.listener('close', state);
+  }
+  return state.tag !== null ||  state.anchor !== null || hasContent;
+}
+
+function readDocument(state) {
+  var documentStart = state.position,
+      _position,
+      directiveName,
+      directiveArgs,
+      hasDirectives = false,
+      ch;
+
+  state.version = null;
+  state.checkLineBreaks = state.legacy;
+  state.tagMap = {};
+  state.anchorMap = {};
+
+  while ((ch = state.input.charCodeAt(state.position)) !== 0) {
+    skipSeparationSpace(state, true, -1);
+
+    ch = state.input.charCodeAt(state.position);
+
+    if (state.lineIndent > 0 || ch !== 0x25/* % */) {
+      break;
+    }
+
+    hasDirectives = true;
+    ch = state.input.charCodeAt(++state.position);
+    _position = state.position;
+
+    while (ch !== 0 && !is_WS_OR_EOL(ch)) {
+      ch = state.input.charCodeAt(++state.position);
+    }
+
+    directiveName = state.input.slice(_position, state.position);
+    directiveArgs = [];
+
+    if (directiveName.length < 1) {
+      throwError(state, 'directive name must not be less than one character in length');
+    }
+
+    while (ch !== 0) {
+      while (is_WHITE_SPACE(ch)) {
+        ch = state.input.charCodeAt(++state.position);
+      }
+
+      if (ch === 0x23/* # */) {
+        do { ch = state.input.charCodeAt(++state.position); }
+        while (ch !== 0 && !is_EOL(ch));
+        break;
+      }
+
+      if (is_EOL(ch)) break;
+
+      _position = state.position;
+
+      while (ch !== 0 && !is_WS_OR_EOL(ch)) {
+        ch = state.input.charCodeAt(++state.position);
+      }
+
+      directiveArgs.push(state.input.slice(_position, state.position));
+    }
+
+    if (ch !== 0) readLineBreak(state);
+
+    if (_hasOwnProperty.call(directiveHandlers, directiveName)) {
+      directiveHandlers[directiveName](state, directiveName, directiveArgs);
+    } else {
+      throwWarning(state, 'unknown document directive "' + directiveName + '"');
+    }
+  }
+
+  skipSeparationSpace(state, true, -1);
+
+  if (state.lineIndent === 0 &&
+      state.input.charCodeAt(state.position)     === 0x2D/* - */ &&
+      state.input.charCodeAt(state.position + 1) === 0x2D/* - */ &&
+      state.input.charCodeAt(state.position + 2) === 0x2D/* - */) {
+    state.position += 3;
+    skipSeparationSpace(state, true, -1);
+
+  } else if (hasDirectives) {
+    throwError(state, 'directives end mark is expected');
+  }
+
+  composeNode(state, state.lineIndent - 1, CONTEXT_BLOCK_OUT, false, true);
+  skipSeparationSpace(state, true, -1);
+
+  if (state.checkLineBreaks &&
+      PATTERN_NON_ASCII_LINE_BREAKS.test(state.input.slice(documentStart, state.position))) {
+    throwWarning(state, 'non-ASCII line breaks are interpreted as content');
+  }
+
+  state.documents.push(state.result);
+
+  if (state.position === state.lineStart && testDocumentSeparator(state)) {
+
+    if (state.input.charCodeAt(state.position) === 0x2E/* . */) {
+      state.position += 3;
+      skipSeparationSpace(state, true, -1);
+    }
+    return;
+  }
+
+  if (state.position < (state.length - 1)) {
+    throwError(state, 'end of the stream or a document separator is expected');
+  } else {
+    return;
+  }
+}
+
+
+function loadDocuments(input, options) {
+  input = String(input);
+  options = options || {};
+
+  if (input.length !== 0) {
+
+    // Add tailing `\n` if not exists
+    if (input.charCodeAt(input.length - 1) !== 0x0A/* LF */ &&
+        input.charCodeAt(input.length - 1) !== 0x0D/* CR */) {
+      input += '\n';
+    }
+
+    // Strip BOM
+    if (input.charCodeAt(0) === 0xFEFF) {
+      input = input.slice(1);
+    }
+  }
+
+  var state = new State(input, options);
+
+  var nullpos = input.indexOf('\0');
+
+  if (nullpos !== -1) {
+    state.position = nullpos;
+    throwError(state, 'null byte is not allowed in input');
+  }
+
+  // Use 0 as string terminator. That significantly simplifies bounds check.
+  state.input += '\0';
+
+  while (state.input.charCodeAt(state.position) === 0x20/* Space */) {
+    state.lineIndent += 1;
+    state.position += 1;
+  }
+
+  while (state.position < (state.length - 1)) {
+    readDocument(state);
+  }
+
+  return state.documents;
+}
+
+
+function loadAll(input, iterator, options) {
+  if (iterator !== null && typeof iterator === 'object' && typeof options === 'undefined') {
+    options = iterator;
+    iterator = null;
+  }
+
+  var documents = loadDocuments(input, options);
+
+  if (typeof iterator !== 'function') {
+    return documents;
+  }
+
+  for (var index = 0, length = documents.length; index < length; index += 1) {
+    iterator(documents[index]);
+  }
+}
+
+
+function load(input, options) {
+  var documents = loadDocuments(input, options);
+
+  if (documents.length === 0) {
+    /*eslint-disable no-undefined*/
+    return undefined;
+  } else if (documents.length === 1) {
+    return documents[0];
+  }
+  throw new YAMLException('expected a single document in the stream, but found more');
+}
+
+
+function safeLoadAll(input, iterator, options) {
+  if (typeof iterator === 'object' && iterator !== null && typeof options === 'undefined') {
+    options = iterator;
+    iterator = null;
+  }
+
+  return loadAll(input, iterator, common.extend({ schema: DEFAULT_SAFE_SCHEMA }, options));
+}
+
+
+function safeLoad(input, options) {
+  return load(input, common.extend({ schema: DEFAULT_SAFE_SCHEMA }, options));
+}
+
+
+module.exports.loadAll     = loadAll;
+module.exports.load        = load;
+module.exports.safeLoadAll = safeLoadAll;
+module.exports.safeLoad    = safeLoad;
 
 
 /***/ }),
@@ -22989,7 +25565,7 @@ var _rules = [
   // First 2 params - rule name & source. Secondary array - list of rules,
   // which can be terminated by this one.
   [ 'table',      __webpack_require__(798),      [ 'paragraph', 'reference' ] ],
-  [ 'code',       __webpack_require__(82) ],
+  [ 'code',       __webpack_require__(312) ],
   [ 'fence',      __webpack_require__(184),      [ 'paragraph', 'reference', 'blockquote', 'list' ] ],
   [ 'blockquote', __webpack_require__(567), [ 'paragraph', 'reference', 'blockquote', 'list' ] ],
   [ 'hr',         __webpack_require__(101),         [ 'paragraph', 'reference', 'blockquote', 'list' ] ],
@@ -23592,7 +26168,7 @@ const resolver = __webpack_require__(998);
 const sw = __webpack_require__(200);
 const common = __webpack_require__(803);
 
-const statusCodes = __webpack_require__(581).statusCodes;
+const statusCodes = __webpack_require__(480).statusCodes;
 
 const ourVersion = __webpack_require__(716).version;
 
@@ -25686,7 +28262,32 @@ exports.parseLinkTitle       = __webpack_require__(551);
 
 /***/ }),
 /* 479 */,
-/* 480 */,
+/* 480 */
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+"use strict";
+
+
+const http = __webpack_require__(605);
+
+const ours = {
+    "default": "Default response",
+    "1XX": "Informational",
+    "103": "Early hints", // not in Node < 10
+    "2XX": "Successful",
+    "3XX": "Redirection",
+    "4XX": "Client Error",
+    "5XX": "Server Error",
+    "7XX": "Developer Error" // April fools RFC
+};
+
+module.exports = {
+    statusCodes: Object.assign({},ours,http.STATUS_CODES)
+};
+
+
+
+/***/ }),
 /* 481 */,
 /* 482 */
 /***/ (function(module, __unusedexports, __webpack_require__) {
@@ -49944,7 +52545,7 @@ var compileSchema = __webpack_require__(805)
   , SchemaObject = __webpack_require__(955)
   , stableStringify = __webpack_require__(741)
   , formats = __webpack_require__(881)
-  , rules = __webpack_require__(417)
+  , rules = __webpack_require__(851)
   , $dataMetaSchema = __webpack_require__(628)
   , util = __webpack_require__(855);
 
@@ -53046,7 +55647,56 @@ module.exports = function parseLinkTitle(str, pos, max) {
 /* 553 */,
 /* 554 */,
 /* 555 */,
-/* 556 */,
+/* 556 */
+/***/ (function(module) {
+
+"use strict";
+// YAML error class. http://stackoverflow.com/questions/8458984
+//
+
+
+function YAMLException(reason, mark) {
+  // Super constructor
+  Error.call(this);
+
+  this.name = 'YAMLException';
+  this.reason = reason;
+  this.mark = mark;
+  this.message = (this.reason || '(unknown reason)') + (this.mark ? ' ' + this.mark.toString() : '');
+
+  // Include stack trace in error object
+  if (Error.captureStackTrace) {
+    // Chrome and NodeJS
+    Error.captureStackTrace(this, this.constructor);
+  } else {
+    // FF, IE 10+ and Safari 6+. Fallback for others
+    this.stack = (new Error()).stack || '';
+  }
+}
+
+
+// Inherit from Error
+YAMLException.prototype = Object.create(Error.prototype);
+YAMLException.prototype.constructor = YAMLException;
+
+
+YAMLException.prototype.toString = function toString(compact) {
+  var result = this.name + ': ';
+
+  result += this.reason || '(unknown reason)';
+
+  if (!compact && this.mark) {
+    result += ' ' + this.mark.toString();
+  }
+
+  return result;
+};
+
+
+module.exports = YAMLException;
+
+
+/***/ }),
 /* 557 */,
 /* 558 */,
 /* 559 */,
@@ -53552,7 +56202,21 @@ module.exports = function blockquote(state, startLine, endLine, silent) {
 /* 571 */,
 /* 572 */,
 /* 573 */,
-/* 574 */,
+/* 574 */
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+"use strict";
+
+
+var Type = __webpack_require__(945);
+
+module.exports = new Type('tag:yaml.org,2002:str', {
+  kind: 'scalar',
+  construct: function (data) { return data !== null ? data : ''; }
+});
+
+
+/***/ }),
 /* 575 */
 /***/ (function(module) {
 
@@ -53576,25 +56240,23 @@ module.exports = __webpack_require__(400)
 /***/ (function(module, __unusedexports, __webpack_require__) {
 
 "use strict";
+// Standard YAML's Failsafe schema.
+// http://www.yaml.org/spec/1.2/spec.html#id2802346
 
 
-const http = __webpack_require__(605);
 
-const ours = {
-    "default": "Default response",
-    "1XX": "Informational",
-    "103": "Early hints", // not in Node < 10
-    "2XX": "Successful",
-    "3XX": "Redirection",
-    "4XX": "Client Error",
-    "5XX": "Server Error",
-    "7XX": "Developer Error" // April fools RFC
-};
 
-module.exports = {
-    statusCodes: Object.assign({},ours,http.STATUS_CODES)
-};
 
+var Schema = __webpack_require__(43);
+
+
+module.exports = new Schema({
+  explicit: [
+    __webpack_require__(574),
+    __webpack_require__(921),
+    __webpack_require__(988)
+  ]
+});
 
 
 /***/ }),
@@ -54451,7 +57113,31 @@ module.exports.info = {
 
 /***/ }),
 /* 610 */,
-/* 611 */,
+/* 611 */
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+"use strict";
+// Standard YAML's Core schema.
+// http://www.yaml.org/spec/1.2/spec.html#id2804923
+//
+// NOTE: JS-YAML does not support schema-specific tag resolution restrictions.
+// So, Core schema has no distinctions from JSON schema is JS-YAML.
+
+
+
+
+
+var Schema = __webpack_require__(43);
+
+
+module.exports = new Schema({
+  include: [
+    __webpack_require__(23)
+  ]
+});
+
+
+/***/ }),
 /* 612 */,
 /* 613 */
 /***/ (function(module, __unusedexports, __webpack_require__) {
@@ -55111,7 +57797,73 @@ module.exports = function (metaSchema, keywordsJsonPointers) {
 
 
 /***/ }),
-/* 629 */,
+/* 629 */
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+"use strict";
+
+
+var Type = __webpack_require__(945);
+
+function resolveJavascriptRegExp(data) {
+  if (data === null) return false;
+  if (data.length === 0) return false;
+
+  var regexp = data,
+      tail   = /\/([gim]*)$/.exec(data),
+      modifiers = '';
+
+  // if regexp starts with '/' it can have modifiers and must be properly closed
+  // `/foo/gim` - modifiers tail can be maximum 3 chars
+  if (regexp[0] === '/') {
+    if (tail) modifiers = tail[1];
+
+    if (modifiers.length > 3) return false;
+    // if expression starts with /, is should be properly terminated
+    if (regexp[regexp.length - modifiers.length - 1] !== '/') return false;
+  }
+
+  return true;
+}
+
+function constructJavascriptRegExp(data) {
+  var regexp = data,
+      tail   = /\/([gim]*)$/.exec(data),
+      modifiers = '';
+
+  // `/foo/gim` - tail can be maximum 4 chars
+  if (regexp[0] === '/') {
+    if (tail) modifiers = tail[1];
+    regexp = regexp.slice(1, regexp.length - modifiers.length - 1);
+  }
+
+  return new RegExp(regexp, modifiers);
+}
+
+function representJavascriptRegExp(object /*, style*/) {
+  var result = '/' + object.source + '/';
+
+  if (object.global) result += 'g';
+  if (object.multiline) result += 'm';
+  if (object.ignoreCase) result += 'i';
+
+  return result;
+}
+
+function isRegExp(object) {
+  return Object.prototype.toString.call(object) === '[object RegExp]';
+}
+
+module.exports = new Type('tag:yaml.org,2002:js/regexp', {
+  kind: 'scalar',
+  resolve: resolveJavascriptRegExp,
+  construct: constructJavascriptRegExp,
+  predicate: isRegExp,
+  represent: representJavascriptRegExp
+});
+
+
+/***/ }),
 /* 630 */,
 /* 631 */
 /***/ (function(module) {
@@ -55120,7 +57872,25 @@ module.exports = require("net");
 
 /***/ }),
 /* 632 */,
-/* 633 */,
+/* 633 */
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+"use strict";
+
+
+var Type = __webpack_require__(945);
+
+function resolveYamlMerge(data) {
+  return data === '<<' || data === null;
+}
+
+module.exports = new Type('tag:yaml.org,2002:merge', {
+  kind: 'scalar',
+  resolve: resolveYamlMerge
+});
+
+
+/***/ }),
 /* 634 */
 /***/ (function(module) {
 
@@ -55683,148 +58453,87 @@ module.exports = {
 
 /***/ }),
 /* 643 */
-/***/ (function(module) {
+/***/ (function(module, __unusedexports, __webpack_require__) {
 
 "use strict";
+/**
+ * @description
+ * HTTP code snippet generator for native XMLHttpRequest
+ *
+ * @author
+ * @AhmadNassri
+ *
+ * for any questions or issues regarding the generated code snippet, please open an issue mentioning the author.
+ */
 
-module.exports = function generate_items(it, $keyword, $ruleType) {
-  var out = ' ';
-  var $lvl = it.level;
-  var $dataLvl = it.dataLevel;
-  var $schema = it.schema[$keyword];
-  var $schemaPath = it.schemaPath + it.util.getProperty($keyword);
-  var $errSchemaPath = it.errSchemaPath + '/' + $keyword;
-  var $breakOnError = !it.opts.allErrors;
-  var $data = 'data' + ($dataLvl || '');
-  var $valid = 'valid' + $lvl;
-  var $errs = 'errs__' + $lvl;
-  var $it = it.util.copy(it);
-  var $closingBraces = '';
-  $it.level++;
-  var $nextValid = 'valid' + $it.level;
-  var $idx = 'i' + $lvl,
-    $dataNxt = $it.dataLevel = it.dataLevel + 1,
-    $nextData = 'data' + $dataNxt,
-    $currentBaseId = it.baseId;
-  out += 'var ' + ($errs) + ' = errors;var ' + ($valid) + ';';
-  if (Array.isArray($schema)) {
-    var $additionalItems = it.schema.additionalItems;
-    if ($additionalItems === false) {
-      out += ' ' + ($valid) + ' = ' + ($data) + '.length <= ' + ($schema.length) + '; ';
-      var $currErrSchemaPath = $errSchemaPath;
-      $errSchemaPath = it.errSchemaPath + '/additionalItems';
-      out += '  if (!' + ($valid) + ') {   ';
-      var $$outStack = $$outStack || [];
-      $$outStack.push(out);
-      out = ''; /* istanbul ignore else */
-      if (it.createErrors !== false) {
-        out += ' { keyword: \'' + ('additionalItems') + '\' , dataPath: (dataPath || \'\') + ' + (it.errorPath) + ' , schemaPath: ' + (it.util.toQuotedString($errSchemaPath)) + ' , params: { limit: ' + ($schema.length) + ' } ';
-        if (it.opts.messages !== false) {
-          out += ' , message: \'should NOT have more than ' + ($schema.length) + ' items\' ';
-        }
-        if (it.opts.verbose) {
-          out += ' , schema: false , parentSchema: validate.schema' + (it.schemaPath) + ' , data: ' + ($data) + ' ';
-        }
-        out += ' } ';
-      } else {
-        out += ' {} ';
-      }
-      var __err = out;
-      out = $$outStack.pop();
-      if (!it.compositeRule && $breakOnError) {
-        /* istanbul ignore if */
-        if (it.async) {
-          out += ' throw new ValidationError([' + (__err) + ']); ';
-        } else {
-          out += ' validate.errors = [' + (__err) + ']; return false; ';
-        }
-      } else {
-        out += ' var err = ' + (__err) + ';  if (vErrors === null) vErrors = [err]; else vErrors.push(err); errors++; ';
-      }
-      out += ' } ';
-      $errSchemaPath = $currErrSchemaPath;
-      if ($breakOnError) {
-        $closingBraces += '}';
-        out += ' else { ';
-      }
-    }
-    var arr1 = $schema;
-    if (arr1) {
-      var $sch, $i = -1,
-        l1 = arr1.length - 1;
-      while ($i < l1) {
-        $sch = arr1[$i += 1];
-        if ((it.opts.strictKeywords ? typeof $sch == 'object' && Object.keys($sch).length > 0 : it.util.schemaHasRules($sch, it.RULES.all))) {
-          out += ' ' + ($nextValid) + ' = true; if (' + ($data) + '.length > ' + ($i) + ') { ';
-          var $passData = $data + '[' + $i + ']';
-          $it.schema = $sch;
-          $it.schemaPath = $schemaPath + '[' + $i + ']';
-          $it.errSchemaPath = $errSchemaPath + '/' + $i;
-          $it.errorPath = it.util.getPathExpr(it.errorPath, $i, it.opts.jsonPointers, true);
-          $it.dataPathArr[$dataNxt] = $i;
-          var $code = it.validate($it);
-          $it.baseId = $currentBaseId;
-          if (it.util.varOccurences($code, $nextData) < 2) {
-            out += ' ' + (it.util.varReplace($code, $nextData, $passData)) + ' ';
-          } else {
-            out += ' var ' + ($nextData) + ' = ' + ($passData) + '; ' + ($code) + ' ';
-          }
-          out += ' }  ';
-          if ($breakOnError) {
-            out += ' if (' + ($nextValid) + ') { ';
-            $closingBraces += '}';
-          }
-        }
-      }
-    }
-    if (typeof $additionalItems == 'object' && (it.opts.strictKeywords ? typeof $additionalItems == 'object' && Object.keys($additionalItems).length > 0 : it.util.schemaHasRules($additionalItems, it.RULES.all))) {
-      $it.schema = $additionalItems;
-      $it.schemaPath = it.schemaPath + '.additionalItems';
-      $it.errSchemaPath = it.errSchemaPath + '/additionalItems';
-      out += ' ' + ($nextValid) + ' = true; if (' + ($data) + '.length > ' + ($schema.length) + ') {  for (var ' + ($idx) + ' = ' + ($schema.length) + '; ' + ($idx) + ' < ' + ($data) + '.length; ' + ($idx) + '++) { ';
-      $it.errorPath = it.util.getPathExpr(it.errorPath, $idx, it.opts.jsonPointers, true);
-      var $passData = $data + '[' + $idx + ']';
-      $it.dataPathArr[$dataNxt] = $idx;
-      var $code = it.validate($it);
-      $it.baseId = $currentBaseId;
-      if (it.util.varOccurences($code, $nextData) < 2) {
-        out += ' ' + (it.util.varReplace($code, $nextData, $passData)) + ' ';
-      } else {
-        out += ' var ' + ($nextData) + ' = ' + ($passData) + '; ' + ($code) + ' ';
-      }
-      if ($breakOnError) {
-        out += ' if (!' + ($nextValid) + ') break; ';
-      }
-      out += ' } }  ';
-      if ($breakOnError) {
-        out += ' if (' + ($nextValid) + ') { ';
-        $closingBraces += '}';
-      }
-    }
-  } else if ((it.opts.strictKeywords ? typeof $schema == 'object' && Object.keys($schema).length > 0 : it.util.schemaHasRules($schema, it.RULES.all))) {
-    $it.schema = $schema;
-    $it.schemaPath = $schemaPath;
-    $it.errSchemaPath = $errSchemaPath;
-    out += '  for (var ' + ($idx) + ' = ' + (0) + '; ' + ($idx) + ' < ' + ($data) + '.length; ' + ($idx) + '++) { ';
-    $it.errorPath = it.util.getPathExpr(it.errorPath, $idx, it.opts.jsonPointers, true);
-    var $passData = $data + '[' + $idx + ']';
-    $it.dataPathArr[$dataNxt] = $idx;
-    var $code = it.validate($it);
-    $it.baseId = $currentBaseId;
-    if (it.util.varOccurences($code, $nextData) < 2) {
-      out += ' ' + (it.util.varReplace($code, $nextData, $passData)) + ' ';
-    } else {
-      out += ' var ' + ($nextData) + ' = ' + ($passData) + '; ' + ($code) + ' ';
-    }
-    if ($breakOnError) {
-      out += ' if (!' + ($nextValid) + ') break; ';
-    }
-    out += ' }';
+
+
+var CodeBuilder = __webpack_require__(193)
+
+module.exports = function (source, options) {
+  var opts = Object.assign({
+    indent: '  '
+  }, options)
+
+  var code = new CodeBuilder(opts.indent)
+
+  var settings = {
+    async: true,
+    crossDomain: true,
+    url: source.fullUrl,
+    method: source.method,
+    headers: source.allHeaders
   }
-  if ($breakOnError) {
-    out += ' ' + ($closingBraces) + ' if (' + ($errs) + ' == errors) {';
+
+  switch (source.postData.mimeType) {
+    case 'application/x-www-form-urlencoded':
+      settings.data = source.postData.paramsObj ? source.postData.paramsObj : source.postData.text
+      break
+
+    case 'application/json':
+      settings.processData = false
+      settings.data = source.postData.text
+      break
+
+    case 'multipart/form-data':
+      code.push('const form = new FormData();')
+
+      source.postData.params.forEach(function (param) {
+        code.push('form.append(%s, %s);', JSON.stringify(param.name), JSON.stringify(param.value || param.fileName || ''))
+      })
+
+      settings.processData = false
+      settings.contentType = false
+      settings.mimeType = 'multipart/form-data'
+      settings.data = '[form]'
+
+      // remove the contentType header
+      if (~settings.headers['content-type'].indexOf('boundary')) {
+        delete settings.headers['content-type']
+      }
+      code.blank()
+      break
+
+    default:
+      if (source.postData.text) {
+        settings.data = source.postData.text
+      }
   }
-  return out;
+
+  code.push('const settings = ' + JSON.stringify(settings, null, opts.indent).replace('"[form]"', 'form') + ';')
+      .blank()
+      .push('$.ajax(settings).done(function (response) {')
+      .push(1, 'console.log(response);')
+      .push('});')
+
+  return code.join()
+}
+
+module.exports.info = {
+  key: 'jquery',
+  title: 'jQuery',
+  link: 'http://api.jquery.com/jquery.ajax/',
+  description: 'Perform an asynchronous HTTP (Ajax) requests with jQuery'
 }
 
 
@@ -57904,7 +60613,863 @@ function jsf32(a, b, c, d) {
 /* 682 */,
 /* 683 */,
 /* 684 */,
-/* 685 */,
+/* 685 */
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+"use strict";
+
+
+/*eslint-disable no-use-before-define*/
+
+var common              = __webpack_require__(740);
+var YAMLException       = __webpack_require__(556);
+var DEFAULT_FULL_SCHEMA = __webpack_require__(910);
+var DEFAULT_SAFE_SCHEMA = __webpack_require__(723);
+
+var _toString       = Object.prototype.toString;
+var _hasOwnProperty = Object.prototype.hasOwnProperty;
+
+var CHAR_TAB                  = 0x09; /* Tab */
+var CHAR_LINE_FEED            = 0x0A; /* LF */
+var CHAR_CARRIAGE_RETURN      = 0x0D; /* CR */
+var CHAR_SPACE                = 0x20; /* Space */
+var CHAR_EXCLAMATION          = 0x21; /* ! */
+var CHAR_DOUBLE_QUOTE         = 0x22; /* " */
+var CHAR_SHARP                = 0x23; /* # */
+var CHAR_PERCENT              = 0x25; /* % */
+var CHAR_AMPERSAND            = 0x26; /* & */
+var CHAR_SINGLE_QUOTE         = 0x27; /* ' */
+var CHAR_ASTERISK             = 0x2A; /* * */
+var CHAR_COMMA                = 0x2C; /* , */
+var CHAR_MINUS                = 0x2D; /* - */
+var CHAR_COLON                = 0x3A; /* : */
+var CHAR_EQUALS               = 0x3D; /* = */
+var CHAR_GREATER_THAN         = 0x3E; /* > */
+var CHAR_QUESTION             = 0x3F; /* ? */
+var CHAR_COMMERCIAL_AT        = 0x40; /* @ */
+var CHAR_LEFT_SQUARE_BRACKET  = 0x5B; /* [ */
+var CHAR_RIGHT_SQUARE_BRACKET = 0x5D; /* ] */
+var CHAR_GRAVE_ACCENT         = 0x60; /* ` */
+var CHAR_LEFT_CURLY_BRACKET   = 0x7B; /* { */
+var CHAR_VERTICAL_LINE        = 0x7C; /* | */
+var CHAR_RIGHT_CURLY_BRACKET  = 0x7D; /* } */
+
+var ESCAPE_SEQUENCES = {};
+
+ESCAPE_SEQUENCES[0x00]   = '\\0';
+ESCAPE_SEQUENCES[0x07]   = '\\a';
+ESCAPE_SEQUENCES[0x08]   = '\\b';
+ESCAPE_SEQUENCES[0x09]   = '\\t';
+ESCAPE_SEQUENCES[0x0A]   = '\\n';
+ESCAPE_SEQUENCES[0x0B]   = '\\v';
+ESCAPE_SEQUENCES[0x0C]   = '\\f';
+ESCAPE_SEQUENCES[0x0D]   = '\\r';
+ESCAPE_SEQUENCES[0x1B]   = '\\e';
+ESCAPE_SEQUENCES[0x22]   = '\\"';
+ESCAPE_SEQUENCES[0x5C]   = '\\\\';
+ESCAPE_SEQUENCES[0x85]   = '\\N';
+ESCAPE_SEQUENCES[0xA0]   = '\\_';
+ESCAPE_SEQUENCES[0x2028] = '\\L';
+ESCAPE_SEQUENCES[0x2029] = '\\P';
+
+var DEPRECATED_BOOLEANS_SYNTAX = [
+  'y', 'Y', 'yes', 'Yes', 'YES', 'on', 'On', 'ON',
+  'n', 'N', 'no', 'No', 'NO', 'off', 'Off', 'OFF'
+];
+
+function compileStyleMap(schema, map) {
+  var result, keys, index, length, tag, style, type;
+
+  if (map === null) return {};
+
+  result = {};
+  keys = Object.keys(map);
+
+  for (index = 0, length = keys.length; index < length; index += 1) {
+    tag = keys[index];
+    style = String(map[tag]);
+
+    if (tag.slice(0, 2) === '!!') {
+      tag = 'tag:yaml.org,2002:' + tag.slice(2);
+    }
+    type = schema.compiledTypeMap['fallback'][tag];
+
+    if (type && _hasOwnProperty.call(type.styleAliases, style)) {
+      style = type.styleAliases[style];
+    }
+
+    result[tag] = style;
+  }
+
+  return result;
+}
+
+function encodeHex(character) {
+  var string, handle, length;
+
+  string = character.toString(16).toUpperCase();
+
+  if (character <= 0xFF) {
+    handle = 'x';
+    length = 2;
+  } else if (character <= 0xFFFF) {
+    handle = 'u';
+    length = 4;
+  } else if (character <= 0xFFFFFFFF) {
+    handle = 'U';
+    length = 8;
+  } else {
+    throw new YAMLException('code point within a string may not be greater than 0xFFFFFFFF');
+  }
+
+  return '\\' + handle + common.repeat('0', length - string.length) + string;
+}
+
+function State(options) {
+  this.schema        = options['schema'] || DEFAULT_FULL_SCHEMA;
+  this.indent        = Math.max(1, (options['indent'] || 2));
+  this.noArrayIndent = options['noArrayIndent'] || false;
+  this.skipInvalid   = options['skipInvalid'] || false;
+  this.flowLevel     = (common.isNothing(options['flowLevel']) ? -1 : options['flowLevel']);
+  this.styleMap      = compileStyleMap(this.schema, options['styles'] || null);
+  this.sortKeys      = options['sortKeys'] || false;
+  this.lineWidth     = options['lineWidth'] || 80;
+  this.noRefs        = options['noRefs'] || false;
+  this.noCompatMode  = options['noCompatMode'] || false;
+  this.condenseFlow  = options['condenseFlow'] || false;
+
+  this.implicitTypes = this.schema.compiledImplicit;
+  this.explicitTypes = this.schema.compiledExplicit;
+
+  this.tag = null;
+  this.result = '';
+
+  this.duplicates = [];
+  this.usedDuplicates = null;
+}
+
+// Indents every line in a string. Empty lines (\n only) are not indented.
+function indentString(string, spaces) {
+  var ind = common.repeat(' ', spaces),
+      position = 0,
+      next = -1,
+      result = '',
+      line,
+      length = string.length;
+
+  while (position < length) {
+    next = string.indexOf('\n', position);
+    if (next === -1) {
+      line = string.slice(position);
+      position = length;
+    } else {
+      line = string.slice(position, next + 1);
+      position = next + 1;
+    }
+
+    if (line.length && line !== '\n') result += ind;
+
+    result += line;
+  }
+
+  return result;
+}
+
+function generateNextLine(state, level) {
+  return '\n' + common.repeat(' ', state.indent * level);
+}
+
+function testImplicitResolving(state, str) {
+  var index, length, type;
+
+  for (index = 0, length = state.implicitTypes.length; index < length; index += 1) {
+    type = state.implicitTypes[index];
+
+    if (type.resolve(str)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+// [33] s-white ::= s-space | s-tab
+function isWhitespace(c) {
+  return c === CHAR_SPACE || c === CHAR_TAB;
+}
+
+// Returns true if the character can be printed without escaping.
+// From YAML 1.2: "any allowed characters known to be non-printable
+// should also be escaped. [However,] This isn’t mandatory"
+// Derived from nb-char - \t - #x85 - #xA0 - #x2028 - #x2029.
+function isPrintable(c) {
+  return  (0x00020 <= c && c <= 0x00007E)
+      || ((0x000A1 <= c && c <= 0x00D7FF) && c !== 0x2028 && c !== 0x2029)
+      || ((0x0E000 <= c && c <= 0x00FFFD) && c !== 0xFEFF /* BOM */)
+      ||  (0x10000 <= c && c <= 0x10FFFF);
+}
+
+// [34] ns-char ::= nb-char - s-white
+// [27] nb-char ::= c-printable - b-char - c-byte-order-mark
+// [26] b-char  ::= b-line-feed | b-carriage-return
+// [24] b-line-feed       ::=     #xA    /* LF */
+// [25] b-carriage-return ::=     #xD    /* CR */
+// [3]  c-byte-order-mark ::=     #xFEFF
+function isNsChar(c) {
+  return isPrintable(c) && !isWhitespace(c)
+    // byte-order-mark
+    && c !== 0xFEFF
+    // b-char
+    && c !== CHAR_CARRIAGE_RETURN
+    && c !== CHAR_LINE_FEED;
+}
+
+// Simplified test for values allowed after the first character in plain style.
+function isPlainSafe(c, prev) {
+  // Uses a subset of nb-char - c-flow-indicator - ":" - "#"
+  // where nb-char ::= c-printable - b-char - c-byte-order-mark.
+  return isPrintable(c) && c !== 0xFEFF
+    // - c-flow-indicator
+    && c !== CHAR_COMMA
+    && c !== CHAR_LEFT_SQUARE_BRACKET
+    && c !== CHAR_RIGHT_SQUARE_BRACKET
+    && c !== CHAR_LEFT_CURLY_BRACKET
+    && c !== CHAR_RIGHT_CURLY_BRACKET
+    // - ":" - "#"
+    // /* An ns-char preceding */ "#"
+    && c !== CHAR_COLON
+    && ((c !== CHAR_SHARP) || (prev && isNsChar(prev)));
+}
+
+// Simplified test for values allowed as the first character in plain style.
+function isPlainSafeFirst(c) {
+  // Uses a subset of ns-char - c-indicator
+  // where ns-char = nb-char - s-white.
+  return isPrintable(c) && c !== 0xFEFF
+    && !isWhitespace(c) // - s-white
+    // - (c-indicator ::=
+    // “-” | “?” | “:” | “,” | “[” | “]” | “{” | “}”
+    && c !== CHAR_MINUS
+    && c !== CHAR_QUESTION
+    && c !== CHAR_COLON
+    && c !== CHAR_COMMA
+    && c !== CHAR_LEFT_SQUARE_BRACKET
+    && c !== CHAR_RIGHT_SQUARE_BRACKET
+    && c !== CHAR_LEFT_CURLY_BRACKET
+    && c !== CHAR_RIGHT_CURLY_BRACKET
+    // | “#” | “&” | “*” | “!” | “|” | “=” | “>” | “'” | “"”
+    && c !== CHAR_SHARP
+    && c !== CHAR_AMPERSAND
+    && c !== CHAR_ASTERISK
+    && c !== CHAR_EXCLAMATION
+    && c !== CHAR_VERTICAL_LINE
+    && c !== CHAR_EQUALS
+    && c !== CHAR_GREATER_THAN
+    && c !== CHAR_SINGLE_QUOTE
+    && c !== CHAR_DOUBLE_QUOTE
+    // | “%” | “@” | “`”)
+    && c !== CHAR_PERCENT
+    && c !== CHAR_COMMERCIAL_AT
+    && c !== CHAR_GRAVE_ACCENT;
+}
+
+// Determines whether block indentation indicator is required.
+function needIndentIndicator(string) {
+  var leadingSpaceRe = /^\n* /;
+  return leadingSpaceRe.test(string);
+}
+
+var STYLE_PLAIN   = 1,
+    STYLE_SINGLE  = 2,
+    STYLE_LITERAL = 3,
+    STYLE_FOLDED  = 4,
+    STYLE_DOUBLE  = 5;
+
+// Determines which scalar styles are possible and returns the preferred style.
+// lineWidth = -1 => no limit.
+// Pre-conditions: str.length > 0.
+// Post-conditions:
+//    STYLE_PLAIN or STYLE_SINGLE => no \n are in the string.
+//    STYLE_LITERAL => no lines are suitable for folding (or lineWidth is -1).
+//    STYLE_FOLDED => a line > lineWidth and can be folded (and lineWidth != -1).
+function chooseScalarStyle(string, singleLineOnly, indentPerLevel, lineWidth, testAmbiguousType) {
+  var i;
+  var char, prev_char;
+  var hasLineBreak = false;
+  var hasFoldableLine = false; // only checked if shouldTrackWidth
+  var shouldTrackWidth = lineWidth !== -1;
+  var previousLineBreak = -1; // count the first line correctly
+  var plain = isPlainSafeFirst(string.charCodeAt(0))
+          && !isWhitespace(string.charCodeAt(string.length - 1));
+
+  if (singleLineOnly) {
+    // Case: no block styles.
+    // Check for disallowed characters to rule out plain and single.
+    for (i = 0; i < string.length; i++) {
+      char = string.charCodeAt(i);
+      if (!isPrintable(char)) {
+        return STYLE_DOUBLE;
+      }
+      prev_char = i > 0 ? string.charCodeAt(i - 1) : null;
+      plain = plain && isPlainSafe(char, prev_char);
+    }
+  } else {
+    // Case: block styles permitted.
+    for (i = 0; i < string.length; i++) {
+      char = string.charCodeAt(i);
+      if (char === CHAR_LINE_FEED) {
+        hasLineBreak = true;
+        // Check if any line can be folded.
+        if (shouldTrackWidth) {
+          hasFoldableLine = hasFoldableLine ||
+            // Foldable line = too long, and not more-indented.
+            (i - previousLineBreak - 1 > lineWidth &&
+             string[previousLineBreak + 1] !== ' ');
+          previousLineBreak = i;
+        }
+      } else if (!isPrintable(char)) {
+        return STYLE_DOUBLE;
+      }
+      prev_char = i > 0 ? string.charCodeAt(i - 1) : null;
+      plain = plain && isPlainSafe(char, prev_char);
+    }
+    // in case the end is missing a \n
+    hasFoldableLine = hasFoldableLine || (shouldTrackWidth &&
+      (i - previousLineBreak - 1 > lineWidth &&
+       string[previousLineBreak + 1] !== ' '));
+  }
+  // Although every style can represent \n without escaping, prefer block styles
+  // for multiline, since they're more readable and they don't add empty lines.
+  // Also prefer folding a super-long line.
+  if (!hasLineBreak && !hasFoldableLine) {
+    // Strings interpretable as another type have to be quoted;
+    // e.g. the string 'true' vs. the boolean true.
+    return plain && !testAmbiguousType(string)
+      ? STYLE_PLAIN : STYLE_SINGLE;
+  }
+  // Edge case: block indentation indicator can only have one digit.
+  if (indentPerLevel > 9 && needIndentIndicator(string)) {
+    return STYLE_DOUBLE;
+  }
+  // At this point we know block styles are valid.
+  // Prefer literal style unless we want to fold.
+  return hasFoldableLine ? STYLE_FOLDED : STYLE_LITERAL;
+}
+
+// Note: line breaking/folding is implemented for only the folded style.
+// NB. We drop the last trailing newline (if any) of a returned block scalar
+//  since the dumper adds its own newline. This always works:
+//    • No ending newline => unaffected; already using strip "-" chomping.
+//    • Ending newline    => removed then restored.
+//  Importantly, this keeps the "+" chomp indicator from gaining an extra line.
+function writeScalar(state, string, level, iskey) {
+  state.dump = (function () {
+    if (string.length === 0) {
+      return "''";
+    }
+    if (!state.noCompatMode &&
+        DEPRECATED_BOOLEANS_SYNTAX.indexOf(string) !== -1) {
+      return "'" + string + "'";
+    }
+
+    var indent = state.indent * Math.max(1, level); // no 0-indent scalars
+    // As indentation gets deeper, let the width decrease monotonically
+    // to the lower bound min(state.lineWidth, 40).
+    // Note that this implies
+    //  state.lineWidth ≤ 40 + state.indent: width is fixed at the lower bound.
+    //  state.lineWidth > 40 + state.indent: width decreases until the lower bound.
+    // This behaves better than a constant minimum width which disallows narrower options,
+    // or an indent threshold which causes the width to suddenly increase.
+    var lineWidth = state.lineWidth === -1
+      ? -1 : Math.max(Math.min(state.lineWidth, 40), state.lineWidth - indent);
+
+    // Without knowing if keys are implicit/explicit, assume implicit for safety.
+    var singleLineOnly = iskey
+      // No block styles in flow mode.
+      || (state.flowLevel > -1 && level >= state.flowLevel);
+    function testAmbiguity(string) {
+      return testImplicitResolving(state, string);
+    }
+
+    switch (chooseScalarStyle(string, singleLineOnly, state.indent, lineWidth, testAmbiguity)) {
+      case STYLE_PLAIN:
+        return string;
+      case STYLE_SINGLE:
+        return "'" + string.replace(/'/g, "''") + "'";
+      case STYLE_LITERAL:
+        return '|' + blockHeader(string, state.indent)
+          + dropEndingNewline(indentString(string, indent));
+      case STYLE_FOLDED:
+        return '>' + blockHeader(string, state.indent)
+          + dropEndingNewline(indentString(foldString(string, lineWidth), indent));
+      case STYLE_DOUBLE:
+        return '"' + escapeString(string, lineWidth) + '"';
+      default:
+        throw new YAMLException('impossible error: invalid scalar style');
+    }
+  }());
+}
+
+// Pre-conditions: string is valid for a block scalar, 1 <= indentPerLevel <= 9.
+function blockHeader(string, indentPerLevel) {
+  var indentIndicator = needIndentIndicator(string) ? String(indentPerLevel) : '';
+
+  // note the special case: the string '\n' counts as a "trailing" empty line.
+  var clip =          string[string.length - 1] === '\n';
+  var keep = clip && (string[string.length - 2] === '\n' || string === '\n');
+  var chomp = keep ? '+' : (clip ? '' : '-');
+
+  return indentIndicator + chomp + '\n';
+}
+
+// (See the note for writeScalar.)
+function dropEndingNewline(string) {
+  return string[string.length - 1] === '\n' ? string.slice(0, -1) : string;
+}
+
+// Note: a long line without a suitable break point will exceed the width limit.
+// Pre-conditions: every char in str isPrintable, str.length > 0, width > 0.
+function foldString(string, width) {
+  // In folded style, $k$ consecutive newlines output as $k+1$ newlines—
+  // unless they're before or after a more-indented line, or at the very
+  // beginning or end, in which case $k$ maps to $k$.
+  // Therefore, parse each chunk as newline(s) followed by a content line.
+  var lineRe = /(\n+)([^\n]*)/g;
+
+  // first line (possibly an empty line)
+  var result = (function () {
+    var nextLF = string.indexOf('\n');
+    nextLF = nextLF !== -1 ? nextLF : string.length;
+    lineRe.lastIndex = nextLF;
+    return foldLine(string.slice(0, nextLF), width);
+  }());
+  // If we haven't reached the first content line yet, don't add an extra \n.
+  var prevMoreIndented = string[0] === '\n' || string[0] === ' ';
+  var moreIndented;
+
+  // rest of the lines
+  var match;
+  while ((match = lineRe.exec(string))) {
+    var prefix = match[1], line = match[2];
+    moreIndented = (line[0] === ' ');
+    result += prefix
+      + (!prevMoreIndented && !moreIndented && line !== ''
+        ? '\n' : '')
+      + foldLine(line, width);
+    prevMoreIndented = moreIndented;
+  }
+
+  return result;
+}
+
+// Greedy line breaking.
+// Picks the longest line under the limit each time,
+// otherwise settles for the shortest line over the limit.
+// NB. More-indented lines *cannot* be folded, as that would add an extra \n.
+function foldLine(line, width) {
+  if (line === '' || line[0] === ' ') return line;
+
+  // Since a more-indented line adds a \n, breaks can't be followed by a space.
+  var breakRe = / [^ ]/g; // note: the match index will always be <= length-2.
+  var match;
+  // start is an inclusive index. end, curr, and next are exclusive.
+  var start = 0, end, curr = 0, next = 0;
+  var result = '';
+
+  // Invariants: 0 <= start <= length-1.
+  //   0 <= curr <= next <= max(0, length-2). curr - start <= width.
+  // Inside the loop:
+  //   A match implies length >= 2, so curr and next are <= length-2.
+  while ((match = breakRe.exec(line))) {
+    next = match.index;
+    // maintain invariant: curr - start <= width
+    if (next - start > width) {
+      end = (curr > start) ? curr : next; // derive end <= length-2
+      result += '\n' + line.slice(start, end);
+      // skip the space that was output as \n
+      start = end + 1;                    // derive start <= length-1
+    }
+    curr = next;
+  }
+
+  // By the invariants, start <= length-1, so there is something left over.
+  // It is either the whole string or a part starting from non-whitespace.
+  result += '\n';
+  // Insert a break if the remainder is too long and there is a break available.
+  if (line.length - start > width && curr > start) {
+    result += line.slice(start, curr) + '\n' + line.slice(curr + 1);
+  } else {
+    result += line.slice(start);
+  }
+
+  return result.slice(1); // drop extra \n joiner
+}
+
+// Escapes a double-quoted string.
+function escapeString(string) {
+  var result = '';
+  var char, nextChar;
+  var escapeSeq;
+
+  for (var i = 0; i < string.length; i++) {
+    char = string.charCodeAt(i);
+    // Check for surrogate pairs (reference Unicode 3.0 section "3.7 Surrogates").
+    if (char >= 0xD800 && char <= 0xDBFF/* high surrogate */) {
+      nextChar = string.charCodeAt(i + 1);
+      if (nextChar >= 0xDC00 && nextChar <= 0xDFFF/* low surrogate */) {
+        // Combine the surrogate pair and store it escaped.
+        result += encodeHex((char - 0xD800) * 0x400 + nextChar - 0xDC00 + 0x10000);
+        // Advance index one extra since we already used that char here.
+        i++; continue;
+      }
+    }
+    escapeSeq = ESCAPE_SEQUENCES[char];
+    result += !escapeSeq && isPrintable(char)
+      ? string[i]
+      : escapeSeq || encodeHex(char);
+  }
+
+  return result;
+}
+
+function writeFlowSequence(state, level, object) {
+  var _result = '',
+      _tag    = state.tag,
+      index,
+      length;
+
+  for (index = 0, length = object.length; index < length; index += 1) {
+    // Write only valid elements.
+    if (writeNode(state, level, object[index], false, false)) {
+      if (index !== 0) _result += ',' + (!state.condenseFlow ? ' ' : '');
+      _result += state.dump;
+    }
+  }
+
+  state.tag = _tag;
+  state.dump = '[' + _result + ']';
+}
+
+function writeBlockSequence(state, level, object, compact) {
+  var _result = '',
+      _tag    = state.tag,
+      index,
+      length;
+
+  for (index = 0, length = object.length; index < length; index += 1) {
+    // Write only valid elements.
+    if (writeNode(state, level + 1, object[index], true, true)) {
+      if (!compact || index !== 0) {
+        _result += generateNextLine(state, level);
+      }
+
+      if (state.dump && CHAR_LINE_FEED === state.dump.charCodeAt(0)) {
+        _result += '-';
+      } else {
+        _result += '- ';
+      }
+
+      _result += state.dump;
+    }
+  }
+
+  state.tag = _tag;
+  state.dump = _result || '[]'; // Empty sequence if no valid values.
+}
+
+function writeFlowMapping(state, level, object) {
+  var _result       = '',
+      _tag          = state.tag,
+      objectKeyList = Object.keys(object),
+      index,
+      length,
+      objectKey,
+      objectValue,
+      pairBuffer;
+
+  for (index = 0, length = objectKeyList.length; index < length; index += 1) {
+
+    pairBuffer = '';
+    if (index !== 0) pairBuffer += ', ';
+
+    if (state.condenseFlow) pairBuffer += '"';
+
+    objectKey = objectKeyList[index];
+    objectValue = object[objectKey];
+
+    if (!writeNode(state, level, objectKey, false, false)) {
+      continue; // Skip this pair because of invalid key;
+    }
+
+    if (state.dump.length > 1024) pairBuffer += '? ';
+
+    pairBuffer += state.dump + (state.condenseFlow ? '"' : '') + ':' + (state.condenseFlow ? '' : ' ');
+
+    if (!writeNode(state, level, objectValue, false, false)) {
+      continue; // Skip this pair because of invalid value.
+    }
+
+    pairBuffer += state.dump;
+
+    // Both key and value are valid.
+    _result += pairBuffer;
+  }
+
+  state.tag = _tag;
+  state.dump = '{' + _result + '}';
+}
+
+function writeBlockMapping(state, level, object, compact) {
+  var _result       = '',
+      _tag          = state.tag,
+      objectKeyList = Object.keys(object),
+      index,
+      length,
+      objectKey,
+      objectValue,
+      explicitPair,
+      pairBuffer;
+
+  // Allow sorting keys so that the output file is deterministic
+  if (state.sortKeys === true) {
+    // Default sorting
+    objectKeyList.sort();
+  } else if (typeof state.sortKeys === 'function') {
+    // Custom sort function
+    objectKeyList.sort(state.sortKeys);
+  } else if (state.sortKeys) {
+    // Something is wrong
+    throw new YAMLException('sortKeys must be a boolean or a function');
+  }
+
+  for (index = 0, length = objectKeyList.length; index < length; index += 1) {
+    pairBuffer = '';
+
+    if (!compact || index !== 0) {
+      pairBuffer += generateNextLine(state, level);
+    }
+
+    objectKey = objectKeyList[index];
+    objectValue = object[objectKey];
+
+    if (!writeNode(state, level + 1, objectKey, true, true, true)) {
+      continue; // Skip this pair because of invalid key.
+    }
+
+    explicitPair = (state.tag !== null && state.tag !== '?') ||
+                   (state.dump && state.dump.length > 1024);
+
+    if (explicitPair) {
+      if (state.dump && CHAR_LINE_FEED === state.dump.charCodeAt(0)) {
+        pairBuffer += '?';
+      } else {
+        pairBuffer += '? ';
+      }
+    }
+
+    pairBuffer += state.dump;
+
+    if (explicitPair) {
+      pairBuffer += generateNextLine(state, level);
+    }
+
+    if (!writeNode(state, level + 1, objectValue, true, explicitPair)) {
+      continue; // Skip this pair because of invalid value.
+    }
+
+    if (state.dump && CHAR_LINE_FEED === state.dump.charCodeAt(0)) {
+      pairBuffer += ':';
+    } else {
+      pairBuffer += ': ';
+    }
+
+    pairBuffer += state.dump;
+
+    // Both key and value are valid.
+    _result += pairBuffer;
+  }
+
+  state.tag = _tag;
+  state.dump = _result || '{}'; // Empty mapping if no valid pairs.
+}
+
+function detectType(state, object, explicit) {
+  var _result, typeList, index, length, type, style;
+
+  typeList = explicit ? state.explicitTypes : state.implicitTypes;
+
+  for (index = 0, length = typeList.length; index < length; index += 1) {
+    type = typeList[index];
+
+    if ((type.instanceOf  || type.predicate) &&
+        (!type.instanceOf || ((typeof object === 'object') && (object instanceof type.instanceOf))) &&
+        (!type.predicate  || type.predicate(object))) {
+
+      state.tag = explicit ? type.tag : '?';
+
+      if (type.represent) {
+        style = state.styleMap[type.tag] || type.defaultStyle;
+
+        if (_toString.call(type.represent) === '[object Function]') {
+          _result = type.represent(object, style);
+        } else if (_hasOwnProperty.call(type.represent, style)) {
+          _result = type.represent[style](object, style);
+        } else {
+          throw new YAMLException('!<' + type.tag + '> tag resolver accepts not "' + style + '" style');
+        }
+
+        state.dump = _result;
+      }
+
+      return true;
+    }
+  }
+
+  return false;
+}
+
+// Serializes `object` and writes it to global `result`.
+// Returns true on success, or false on invalid object.
+//
+function writeNode(state, level, object, block, compact, iskey) {
+  state.tag = null;
+  state.dump = object;
+
+  if (!detectType(state, object, false)) {
+    detectType(state, object, true);
+  }
+
+  var type = _toString.call(state.dump);
+
+  if (block) {
+    block = (state.flowLevel < 0 || state.flowLevel > level);
+  }
+
+  var objectOrArray = type === '[object Object]' || type === '[object Array]',
+      duplicateIndex,
+      duplicate;
+
+  if (objectOrArray) {
+    duplicateIndex = state.duplicates.indexOf(object);
+    duplicate = duplicateIndex !== -1;
+  }
+
+  if ((state.tag !== null && state.tag !== '?') || duplicate || (state.indent !== 2 && level > 0)) {
+    compact = false;
+  }
+
+  if (duplicate && state.usedDuplicates[duplicateIndex]) {
+    state.dump = '*ref_' + duplicateIndex;
+  } else {
+    if (objectOrArray && duplicate && !state.usedDuplicates[duplicateIndex]) {
+      state.usedDuplicates[duplicateIndex] = true;
+    }
+    if (type === '[object Object]') {
+      if (block && (Object.keys(state.dump).length !== 0)) {
+        writeBlockMapping(state, level, state.dump, compact);
+        if (duplicate) {
+          state.dump = '&ref_' + duplicateIndex + state.dump;
+        }
+      } else {
+        writeFlowMapping(state, level, state.dump);
+        if (duplicate) {
+          state.dump = '&ref_' + duplicateIndex + ' ' + state.dump;
+        }
+      }
+    } else if (type === '[object Array]') {
+      var arrayLevel = (state.noArrayIndent && (level > 0)) ? level - 1 : level;
+      if (block && (state.dump.length !== 0)) {
+        writeBlockSequence(state, arrayLevel, state.dump, compact);
+        if (duplicate) {
+          state.dump = '&ref_' + duplicateIndex + state.dump;
+        }
+      } else {
+        writeFlowSequence(state, arrayLevel, state.dump);
+        if (duplicate) {
+          state.dump = '&ref_' + duplicateIndex + ' ' + state.dump;
+        }
+      }
+    } else if (type === '[object String]') {
+      if (state.tag !== '?') {
+        writeScalar(state, state.dump, level, iskey);
+      }
+    } else {
+      if (state.skipInvalid) return false;
+      throw new YAMLException('unacceptable kind of an object to dump ' + type);
+    }
+
+    if (state.tag !== null && state.tag !== '?') {
+      state.dump = '!<' + state.tag + '> ' + state.dump;
+    }
+  }
+
+  return true;
+}
+
+function getDuplicateReferences(object, state) {
+  var objects = [],
+      duplicatesIndexes = [],
+      index,
+      length;
+
+  inspectNode(object, objects, duplicatesIndexes);
+
+  for (index = 0, length = duplicatesIndexes.length; index < length; index += 1) {
+    state.duplicates.push(objects[duplicatesIndexes[index]]);
+  }
+  state.usedDuplicates = new Array(length);
+}
+
+function inspectNode(object, objects, duplicatesIndexes) {
+  var objectKeyList,
+      index,
+      length;
+
+  if (object !== null && typeof object === 'object') {
+    index = objects.indexOf(object);
+    if (index !== -1) {
+      if (duplicatesIndexes.indexOf(index) === -1) {
+        duplicatesIndexes.push(index);
+      }
+    } else {
+      objects.push(object);
+
+      if (Array.isArray(object)) {
+        for (index = 0, length = object.length; index < length; index += 1) {
+          inspectNode(object[index], objects, duplicatesIndexes);
+        }
+      } else {
+        objectKeyList = Object.keys(object);
+
+        for (index = 0, length = objectKeyList.length; index < length; index += 1) {
+          inspectNode(object[objectKeyList[index]], objects, duplicatesIndexes);
+        }
+      }
+    }
+  }
+}
+
+function dump(input, options) {
+  options = options || {};
+
+  var state = new State(options);
+
+  if (!state.noRefs) getDuplicateReferences(input, state);
+
+  if (writeNode(state, 0, input, true, true)) return state.dump + '\n';
+
+  return '';
+}
+
+function safeDump(input, options) {
+  return dump(input, common.extend({ schema: DEFAULT_SAFE_SCHEMA }, options));
+}
+
+module.exports.dump     = dump;
+module.exports.safeDump = safeDump;
+
+
+/***/ }),
 /* 686 */,
 /* 687 */
 /***/ (function(module) {
@@ -58553,7 +62118,41 @@ module.exports = function (x) {
 /***/ }),
 /* 721 */,
 /* 722 */,
-/* 723 */,
+/* 723 */
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+"use strict";
+// JS-YAML's default schema for `safeLoad` function.
+// It is not described in the YAML specification.
+//
+// This schema is based on standard YAML's Core schema and includes most of
+// extra types described at YAML tag repository. (http://yaml.org/type/)
+
+
+
+
+
+var Schema = __webpack_require__(43);
+
+
+module.exports = new Schema({
+  include: [
+    __webpack_require__(611)
+  ],
+  implicit: [
+    __webpack_require__(82),
+    __webpack_require__(633)
+  ],
+  explicit: [
+    __webpack_require__(913),
+    __webpack_require__(181),
+    __webpack_require__(947),
+    __webpack_require__(100)
+  ]
+});
+
+
+/***/ }),
 /* 724 */,
 /* 725 */
 /***/ (function(module) {
@@ -59313,7 +62912,67 @@ es.pipeable = function () {
 /* 740 */
 /***/ (function(module) {
 
-module.exports = {"$id":"postData.json#","$schema":"http://json-schema.org/draft-06/schema#","type":"object","optional":true,"required":["mimeType"],"properties":{"mimeType":{"type":"string"},"text":{"type":"string"},"params":{"type":"array","required":["name"],"properties":{"name":{"type":"string"},"value":{"type":"string"},"fileName":{"type":"string"},"contentType":{"type":"string"},"comment":{"type":"string"}}},"comment":{"type":"string"}}};
+"use strict";
+
+
+
+function isNothing(subject) {
+  return (typeof subject === 'undefined') || (subject === null);
+}
+
+
+function isObject(subject) {
+  return (typeof subject === 'object') && (subject !== null);
+}
+
+
+function toArray(sequence) {
+  if (Array.isArray(sequence)) return sequence;
+  else if (isNothing(sequence)) return [];
+
+  return [ sequence ];
+}
+
+
+function extend(target, source) {
+  var index, length, key, sourceKeys;
+
+  if (source) {
+    sourceKeys = Object.keys(source);
+
+    for (index = 0, length = sourceKeys.length; index < length; index += 1) {
+      key = sourceKeys[index];
+      target[key] = source[key];
+    }
+  }
+
+  return target;
+}
+
+
+function repeat(string, count) {
+  var result = '', cycle;
+
+  for (cycle = 0; cycle < count; cycle += 1) {
+    result += string;
+  }
+
+  return result;
+}
+
+
+function isNegativeZero(number) {
+  return (number === 0) && (Number.NEGATIVE_INFINITY === 1 / number);
+}
+
+
+module.exports.isNothing      = isNothing;
+module.exports.isObject       = isObject;
+module.exports.toArray        = toArray;
+module.exports.repeat         = repeat;
+module.exports.isNegativeZero = isNegativeZero;
+module.exports.extend         = extend;
+
 
 /***/ }),
 /* 741 */
@@ -59397,7 +63056,7 @@ module.exports = {
   },
 
   restsharp: __webpack_require__(598),
-  httpclient: __webpack_require__(352)
+  httpclient: __webpack_require__(187)
 }
 
 
@@ -59425,7 +63084,29 @@ module.exports = {
 /* 745 */
 /***/ (function(module) {
 
-module.exports = [{"code":"1xx","phrase":"**Informational**","description":"\"indicates an interim response for communicating connection status or request progress prior to completing the requested action and sending a final response.\" ~ [sure](http://www.urbandictionary.com/define.php?term=sure)","spec_title":"RFC7231#6.2","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.2"},{"code":"100","phrase":"Continue","description":"\"indicates that the initial part of a request has been received and has not yet been rejected by the server.\"","spec_title":"RFC7231#6.2.1","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.2.1"},{"code":"101","phrase":"Switching Protocols","description":"\"indicates that the server understands and is willing to comply with the client's request, via the Upgrade header field, for a change in the application protocol being used on this connection.\"","spec_title":"RFC7231#6.2.2","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.2.2"},{"code":"2xx","phrase":"**Successful**","description":"\"indicates that the client's request was successfully received, understood, and accepted.\" ~ [cool](https://twitter.com/DanaDanger/status/183316183494311936)","spec_title":"RFC7231#6.3","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.3"},{"code":"200","phrase":"OK","description":"\"indicates that the request has succeeded.\"","spec_title":"RFC7231#6.3.1","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.3.1"},{"code":"201","phrase":"Created","description":"\"indicates that the request has been fulfilled and has resulted in one or more new resources being created.\"","spec_title":"RFC7231#6.3.2","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.3.2"},{"code":"202","phrase":"Accepted","description":"\"indicates that the request has been accepted for processing, but the processing has not been completed.\"","spec_title":"RFC7231#6.3.3","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.3.3"},{"code":"203","phrase":"Non-Authoritative Information","description":"\"indicates that the request was successful but the enclosed payload has been modified from that of the origin server's 200 (OK) response by a transforming proxy.\"","spec_title":"RFC7231#6.3.4","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.3.4"},{"code":"204","phrase":"No Content","description":"\"indicates that the server has successfully fulfilled the request and that there is no additional content to send in the response payload body.\"","spec_title":"RFC7231#6.3.5","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.3.5"},{"code":"205","phrase":"Reset Content","description":"\"indicates that the server has fulfilled the request and desires that the user agent reset the \"document view\", which caused the request to be sent, to its original state as received from the origin server.\"","spec_title":"RFC7231#6.3.6","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.3.6"},{"code":"206","phrase":"Partial Content","description":"\"indicates that the server is successfully fulfilling a range request for the target resource by transferring one or more parts of the selected representation that correspond to the satisfiable ranges found in the requests's Range header field.\"","spec_title":"RFC7233#4.1","spec_href":"https://tools.ietf.org/html/rfc7233#section-4.1"},{"code":"3xx","phrase":"**Redirection**","description":"\"indicates that further action needs to be taken by the user agent in order to fulfill the request.\" ~ [ask that dude over there](https://twitter.com/DanaDanger/status/183316183494311936)","spec_title":"RFC7231#6.4","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.4"},{"code":"300","phrase":"Multiple Choices","description":"\"indicates that the target resource has more than one representation, each with its own more specific identifier, and information about the alternatives is being provided so that the user (or user agent) can select a preferred representation by redirecting its request to one or more of those identifiers.\"","spec_title":"RFC7231#6.4.1","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.4.1"},{"code":"301","phrase":"Moved Permanently","description":"\"indicates that the target resource has been assigned a new permanent URI and any future references to this resource ought to use one of the enclosed URIs.\"","spec_title":"RFC7231#6.4.2","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.4.2"},{"code":"302","phrase":"Found","description":"\"indicates that the target resource resides temporarily under a different URI.\"","spec_title":"RFC7231#6.4.3","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.4.3"},{"code":"303","phrase":"See Other","description":"\"indicates that the server is redirecting the user agent to a different resource, as indicated by a URI in the Location header field, that is intended to provide an indirect response to the original request.\"","spec_title":"RFC7231#6.4.4","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.4.4"},{"code":"304","phrase":"Not Modified","description":"\"indicates that a conditional GET request has been received and would have resulted in a 200 (OK) response if it were not for the fact that the condition has evaluated to false.\"","spec_title":"RFC7232#4.1","spec_href":"https://tools.ietf.org/html/rfc7232#section-4.1"},{"code":"305","phrase":"Use Proxy","description":"*deprecated*","spec_title":"RFC7231#6.4.5","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.4.5"},{"code":"307","phrase":"Temporary Redirect","description":"\"indicates that the target resource resides temporarily under a different URI and the user agent MUST NOT change the request method if it performs an automatic redirection to that URI.\"","spec_title":"RFC7231#6.4.7","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.4.7"},{"code":"4xx","phrase":"**Client Error**","description":"\"indicates that the client seems to have erred.\" ~ [*you* fucked up](https://twitter.com/DanaDanger/status/183316183494311936)","spec_title":"RFC7231#6.5","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.5"},{"code":"400","phrase":"Bad Request","description":"\"indicates that the server cannot or will not process the request because the received syntax is invalid, nonsensical, or exceeds some limitation on what the server is willing to process.\"","spec_title":"RFC7231#6.5.1","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.5.1"},{"code":"401","phrase":"Unauthorized","description":"\"indicates that the request has not been applied because it lacks valid authentication credentials for the target resource.\"","spec_title":"RFC7235#6.3.1","spec_href":"https://tools.ietf.org/html/rfc7235#section-3.1"},{"code":"402","phrase":"Payment Required","description":"*reserved*","spec_title":"RFC7231#6.5.2","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.5.2"},{"code":"403","phrase":"Forbidden","description":"\"indicates that the server understood the request but refuses to authorize it.\"","spec_title":"RFC7231#6.5.3","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.5.3"},{"code":"404","phrase":"Not Found","description":"\"indicates that the origin server did not find a current representation for the target resource or is not willing to disclose that one exists.\"","spec_title":"RFC7231#6.5.4","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.5.4"},{"code":"405","phrase":"Method Not Allowed","description":"\"indicates that the method specified in the request-line is known by the origin server but not supported by the target resource.\"","spec_title":"RFC7231#6.5.5","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.5.5"},{"code":"406","phrase":"Not Acceptable","description":"\"indicates that the target resource does not have a current representation that would be acceptable to the user agent, according to the proactive negotiation header fields received in the request, and the server is unwilling to supply a default representation.\"","spec_title":"RFC7231#6.5.6","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.5.6"},{"code":"407","phrase":"Proxy Authentication Required","description":"\"is similar to 401 (Unauthorized), but indicates that the client needs to authenticate itself in order to use a proxy.\"","spec_title":"RFC7235#3.2","spec_href":"https://tools.ietf.org/html/rfc7235#section-3.2"},{"code":"408","phrase":"Request Timeout","description":"\"indicates that the server did not receive a complete request message within the time that it was prepared to wait.\"","spec_title":"RFC7231#6.5.7","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.5.7"},{"code":"409","phrase":"Conflict","description":"\"indicates that the request could not be completed due to a conflict with the current state of the resource.\"","spec_title":"RFC7231#6.5.8","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.5.8"},{"code":"410","phrase":"Gone","description":"\"indicates that access to the target resource is no longer available at the origin server and that this condition is likely to be permanent.\"","spec_title":"RFC7231#6.5.9","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.5.9"},{"code":"411","phrase":"Length Required","description":"\"indicates that the server refuses to accept the request without a defined Content-Length.\"","spec_title":"RFC7231#6.5.10","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.5.10"},{"code":"412","phrase":"Precondition Failed","description":"\"indicates that one or more preconditions given in the request header fields evaluated to false when tested on the server.\"","spec_title":"RFC7232#4.2","spec_href":"https://tools.ietf.org/html/rfc7232#section-4.2"},{"code":"413","phrase":"Payload Too Large","description":"\"indicates that the server is refusing to process a request because the request payload is larger than the server is willing or able to process.\"","spec_title":"RFC7231#6.5.11","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.5.11"},{"code":"414","phrase":"URI Too Long","description":"\"indicates that the server is refusing to service the request because the request-target is longer than the server is willing to interpret.\"","spec_title":"RFC7231#6.5.12","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.5.12"},{"code":"415","phrase":"Unsupported Media Type","description":"\"indicates that the origin server is refusing to service the request because the payload is in a format not supported by the target resource for this method.\"","spec_title":"RFC7231#6.5.13","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.5.13"},{"code":"416","phrase":"Range Not Satisfiable","description":"\"indicates that none of the ranges in the request's Range header field overlap the current extent of the selected resource or that the set of ranges requested has been rejected due to invalid ranges or an excessive request of small or overlapping ranges.\"","spec_title":"RFC7233#4.4","spec_href":"https://tools.ietf.org/html/rfc7233#section-4.4"},{"code":"417","phrase":"Expectation Failed","description":"\"indicates that the expectation given in the request's Expect header field could not be met by at least one of the inbound servers.\"","spec_title":"RFC7231#6.5.14","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.5.14"},{"code":"418","phrase":"I'm a teapot","description":"\"Any attempt to brew coffee with a teapot should result in the error code 418 I'm a teapot.\"","spec_title":"RFC2324#2.3.1","spec_href":"https://tools.ietf.org/html/rfc2324#section-2.3.1"},{"code":"426","phrase":"Upgrade Required","description":"\"indicates that the server refuses to perform the request using the current protocol but might be willing to do so after the client upgrades to a different protocol.\"","spec_title":"RFC7231#6.5.15","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.5.15"},{"code":"5xx","phrase":"**Server Error**","description":"\"indicates that the server is aware that it has erred or is incapable of performing the requested method.\" ~ [*we* fucked up](https://twitter.com/DanaDanger/status/183316183494311936)","spec_title":"RFC7231#6.6","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.6"},{"code":"500","phrase":"Internal Server Error","description":"\"indicates that the server encountered an unexpected condition that prevented it from fulfilling the request.\"","spec_title":"RFC7231#6.6.1","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.6.1"},{"code":"501","phrase":"Not Implemented","description":"\"indicates that the server does not support the functionality required to fulfill the request.\"","spec_title":"RFC7231#6.6.2","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.6.2"},{"code":"502","phrase":"Bad Gateway","description":"\"indicates that the server, while acting as a gateway or proxy, received an invalid response from an inbound server it accessed while attempting to fulfill the request.\"","spec_title":"RFC7231#6.6.3","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.6.3"},{"code":"503","phrase":"Service Unavailable","description":"\"indicates that the server is currently unable to handle the request due to a temporary overload or scheduled maintenance, which will likely be alleviated after some delay.\"","spec_title":"RFC7231#6.6.4","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.6.4"},{"code":"504","phrase":"Gateway Time-out","description":"\"indicates that the server, while acting as a gateway or proxy, did not receive a timely response from an upstream server it needed to access in order to complete the request.\"","spec_title":"RFC7231#6.6.5","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.6.5"},{"code":"505","phrase":"HTTP Version Not Supported","description":"\"indicates that the server does not support, or refuses to support, the protocol version that was used in the request message.\"","spec_title":"RFC7231#6.6.6","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.6.6"},{"code":"102","phrase":"Processing","description":"\"is an interim response used to inform the client that the server has accepted the complete request, but has not yet completed it.\"","spec_title":"RFC5218#10.1","spec_href":"https://tools.ietf.org/html/rfc2518#section-10.1"},{"code":"103","phrase":"Early Hints","description":"\"the server is likely to send a final response with the header fields included in the informational response\"","spec_title":"RFC8297#2","spec_href":"https://tools.ietf.org/html/rfc8297#section-2"},{"code":"207","phrase":"Multi-Status","description":"\"provides status for multiple independent operations.\"","spec_title":"RFC5218#10.2","spec_href":"https://tools.ietf.org/html/rfc2518#section-10.2"},{"code":"226","phrase":"IM Used","description":"\"The server has fulfilled a GET request for the resource, and the response is a representation of the result of one or more instance-manipulations applied to the current instance.\"","spec_title":"RFC3229#10.4.1","spec_href":"https://tools.ietf.org/html/rfc3229#section-10.4.1"},{"code":"308","phrase":"Permanent Redirect","description":"\"The target resource has been assigned a new permanent URI and any future references to this resource outght to use one of the enclosed URIs. [...] This status code is similar to 301 Moved Permanently (Section 7.3.2 of rfc7231), except that it does not allow rewriting the request method from POST to GET.\"","spec_title":"RFC7538","spec_href":"https://tools.ietf.org/html/rfc7538"},{"code":"421","phrase":"Misdirected request","description":"\"indicates that the request was directed at a server that is not able to produce a response.  This can be sent by a server that is not configured to produce responses for the combination of scheme and authority that are included in the request URI.\"","spec_title":"RFC7540#9.1.2","spec_href":"https://tools.ietf.org/html/rfc7540#section-9.1.2"},{"code":"422","phrase":"Unprocessable Entity","description":"\"means the server understands the content type of the request entity (hence a 415(Unsupported Media Type) status code is inappropriate), and the syntax of the request entity is correct (thus a 400 (Bad Request) status code is inappropriate) but was unable to process the contained instructions.\"","spec_title":"RFC5218#10.3","spec_href":"https://tools.ietf.org/html/rfc2518#section-10.3"},{"code":"423","phrase":"Locked","description":"\"means the source or destination resource of a method is locked.\"","spec_title":"RFC5218#10.4","spec_href":"https://tools.ietf.org/html/rfc2518#section-10.4"},{"code":"424","phrase":"Failed Dependency","description":"\"means that the method could not be performed on the resource because the requested action depended on another action and that action failed.\"","spec_title":"RFC5218#10.5","spec_href":"https://tools.ietf.org/html/rfc2518#section-10.5"},{"code":"428","phrase":"Precondition Required","description":"\"indicates that the origin server requires the request to be conditional.\"","spec_title":"RFC6585#3","spec_href":"https://tools.ietf.org/html/rfc6585#section-3"},{"code":"429","phrase":"Too Many Requests","description":"\"indicates that the user has sent too many requests in a given amount of time (\"rate limiting\").\"","spec_title":"RFC6585#4","spec_href":"https://tools.ietf.org/html/rfc6585#section-4"},{"code":"431","phrase":"Request Header Fields Too Large","description":"\"indicates that the server is unwilling to process the request because its header fields are too large.\"","spec_title":"RFC6585#5","spec_href":"https://tools.ietf.org/html/rfc6585#section-5"},{"code":"451","phrase":"Unavailable For Legal Reasons","description":"\"This status code indicates that the server is denying access to the resource in response to a legal demand.\"","spec_title":"draft-ietf-httpbis-legally-restricted-status","spec_href":"https://tools.ietf.org/html/draft-ietf-httpbis-legally-restricted-status"},{"code":"506","phrase":"Variant Also Negotiates","description":"\"indicates that the server has an internal configuration error: the chosen variant resource is configured to engage in transparent content negotiation itself, and is therefore not a proper end point in the negotiation process.\"","spec_title":"RFC2295#8.1","spec_href":"https://tools.ietf.org/html/rfc2295#section-8.1"},{"code":"507","phrase":"Insufficient Storage","description":"\"means the method could not be performed on the resource because the server is unable to store the representation needed to successfully complete the request.\"","spec_title":"RFC5218#10.6","spec_href":"https://tools.ietf.org/html/rfc2518#section-10.6"},{"code":"511","phrase":"Network Authentication Required","description":"\"indicates that the client needs to authenticate to gain network access.\"","spec_title":"RFC6585#6","spec_href":"https://tools.ietf.org/html/rfc6585#section-6"},{"code":"7xx","phrase":"**Developer Error**","description":"[err](http://www.urbandictionary.com/define.php?term=err)","spec_title":"7xx-rfc","spec_href":"http://documentup.com/joho/7XX-rfc"}];
+"use strict";
+// Normalize input string
+
+
+
+
+// https://spec.commonmark.org/0.29/#line-ending
+var NEWLINES_RE  = /\r\n?|\n/g;
+var NULL_RE      = /\0/g;
+
+
+module.exports = function normalize(state) {
+  var str;
+
+  // Normalize newlines
+  str = state.src.replace(NEWLINES_RE, '\n');
+
+  // Replace NULL characters
+  str = str.replace(NULL_RE, '\uFFFD');
+
+  state.src = str;
+};
+
 
 /***/ }),
 /* 746 */,
@@ -59653,7 +63334,7 @@ module.exports = function (re) {
 
 
 
-var Token = __webpack_require__(377);
+var Token = __webpack_require__(423);
 var isSpace = __webpack_require__(530).isSpace;
 
 
@@ -61799,7 +65480,47 @@ function vars(arr, statement) {
 /* 806 */,
 /* 807 */,
 /* 808 */,
-/* 809 */,
+/* 809 */
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+"use strict";
+
+
+var Type = __webpack_require__(945);
+
+function resolveYamlNull(data) {
+  if (data === null) return true;
+
+  var max = data.length;
+
+  return (max === 1 && data === '~') ||
+         (max === 4 && (data === 'null' || data === 'Null' || data === 'NULL'));
+}
+
+function constructYamlNull() {
+  return null;
+}
+
+function isNull(object) {
+  return object === null;
+}
+
+module.exports = new Type('tag:yaml.org,2002:null', {
+  kind: 'scalar',
+  resolve: resolveYamlNull,
+  construct: constructYamlNull,
+  predicate: isNull,
+  represent: {
+    canonical: function () { return '~';    },
+    lowercase: function () { return 'null'; },
+    uppercase: function () { return 'NULL'; },
+    camelcase: function () { return 'Null'; }
+  },
+  defaultStyle: 'lowercase'
+});
+
+
+/***/ }),
 /* 810 */,
 /* 811 */,
 /* 812 */,
@@ -62566,7 +66287,7 @@ const md = __webpack_require__(717)({
 
 /* originally from https://github.com/for-GET/know-your-http-well/blob/master/json/status-codes.json */
 /* "Unlicensed", public domain */
-const statusCodes = __webpack_require__(745);
+const statusCodes = __webpack_require__(972);
 
 const contentTypes = {
     xml: ['^(application|text|image){1}\\/(.*\\+){0,1}xml(;){0,1}(\\s){0,}(charset=.*){0,}$'],
@@ -64282,7 +68003,79 @@ function errorSubclass(Subclass) {
 /* 848 */,
 /* 849 */,
 /* 850 */,
-/* 851 */,
+/* 851 */
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+"use strict";
+
+
+var ruleModules = __webpack_require__(383)
+  , toHash = __webpack_require__(855).toHash;
+
+module.exports = function rules() {
+  var RULES = [
+    { type: 'number',
+      rules: [ { 'maximum': ['exclusiveMaximum'] },
+               { 'minimum': ['exclusiveMinimum'] }, 'multipleOf', 'format'] },
+    { type: 'string',
+      rules: [ 'maxLength', 'minLength', 'pattern', 'format' ] },
+    { type: 'array',
+      rules: [ 'maxItems', 'minItems', 'items', 'contains', 'uniqueItems' ] },
+    { type: 'object',
+      rules: [ 'maxProperties', 'minProperties', 'required', 'dependencies', 'propertyNames',
+               { 'properties': ['additionalProperties', 'patternProperties'] } ] },
+    { rules: [ '$ref', 'const', 'enum', 'not', 'anyOf', 'oneOf', 'allOf', 'if' ] }
+  ];
+
+  var ALL = [ 'type', '$comment' ];
+  var KEYWORDS = [
+    '$schema', '$id', 'id', '$data', '$async', 'title',
+    'description', 'default', 'definitions',
+    'examples', 'readOnly', 'writeOnly',
+    'contentMediaType', 'contentEncoding',
+    'additionalItems', 'then', 'else'
+  ];
+  var TYPES = [ 'number', 'integer', 'string', 'array', 'object', 'boolean', 'null' ];
+  RULES.all = toHash(ALL);
+  RULES.types = toHash(TYPES);
+
+  RULES.forEach(function (group) {
+    group.rules = group.rules.map(function (keyword) {
+      var implKeywords;
+      if (typeof keyword == 'object') {
+        var key = Object.keys(keyword)[0];
+        implKeywords = keyword[key];
+        keyword = key;
+        implKeywords.forEach(function (k) {
+          ALL.push(k);
+          RULES.all[k] = true;
+        });
+      }
+      ALL.push(keyword);
+      var rule = RULES.all[keyword] = {
+        keyword: keyword,
+        code: ruleModules[keyword],
+        implements: implKeywords
+      };
+      return rule;
+    });
+
+    RULES.all.$comment = {
+      keyword: '$comment',
+      code: ruleModules.$comment
+    };
+
+    if (group.type) RULES.types[group.type] = group;
+  });
+
+  RULES.keywords = toHash(ALL.concat(KEYWORDS));
+  RULES.custom = {};
+
+  return RULES;
+};
+
+
+/***/ }),
 /* 852 */
 /***/ (function(module, __unusedexports, __webpack_require__) {
 
@@ -67342,7 +71135,7 @@ var Ruler  = __webpack_require__(725);
 
 
 var _rules = [
-  [ 'normalize',      __webpack_require__(43)      ],
+  [ 'normalize',      __webpack_require__(745)      ],
   [ 'block',          __webpack_require__(263)          ],
   [ 'inline',         __webpack_require__(419)         ],
   [ 'linkify',        __webpack_require__(95)        ],
@@ -67859,7 +71652,38 @@ module.exports.info = {
 
 
 /***/ }),
-/* 910 */,
+/* 910 */
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+"use strict";
+// JS-YAML's default schema for `load` function.
+// It is not described in the YAML specification.
+//
+// This schema is based on JS-YAML's default safe schema and includes
+// JavaScript-specific types: !!js/undefined, !!js/regexp and !!js/function.
+//
+// Also this schema is used as default base schema at `Schema.create` function.
+
+
+
+
+
+var Schema = __webpack_require__(43);
+
+
+module.exports = Schema.DEFAULT = new Schema({
+  include: [
+    __webpack_require__(723)
+  ],
+  explicit: [
+    __webpack_require__(386),
+    __webpack_require__(629),
+    __webpack_require__(352)
+  ]
+});
+
+
+/***/ }),
 /* 911 */,
 /* 912 */
 /***/ (function(module, __unusedexports, __webpack_require__) {
@@ -67904,7 +71728,151 @@ function initializeOptions(options) {
   }
 
 /***/ }),
-/* 913 */,
+/* 913 */
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+"use strict";
+
+
+/*eslint-disable no-bitwise*/
+
+var NodeBuffer;
+
+try {
+  // A trick for browserified version, to not include `Buffer` shim
+  var _require = require;
+  NodeBuffer = _require('buffer').Buffer;
+} catch (__) {}
+
+var Type       = __webpack_require__(945);
+
+
+// [ 64, 65, 66 ] -> [ padding, CR, LF ]
+var BASE64_MAP = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=\n\r';
+
+
+function resolveYamlBinary(data) {
+  if (data === null) return false;
+
+  var code, idx, bitlen = 0, max = data.length, map = BASE64_MAP;
+
+  // Convert one by one.
+  for (idx = 0; idx < max; idx++) {
+    code = map.indexOf(data.charAt(idx));
+
+    // Skip CR/LF
+    if (code > 64) continue;
+
+    // Fail on illegal characters
+    if (code < 0) return false;
+
+    bitlen += 6;
+  }
+
+  // If there are any bits left, source was corrupted
+  return (bitlen % 8) === 0;
+}
+
+function constructYamlBinary(data) {
+  var idx, tailbits,
+      input = data.replace(/[\r\n=]/g, ''), // remove CR/LF & padding to simplify scan
+      max = input.length,
+      map = BASE64_MAP,
+      bits = 0,
+      result = [];
+
+  // Collect by 6*4 bits (3 bytes)
+
+  for (idx = 0; idx < max; idx++) {
+    if ((idx % 4 === 0) && idx) {
+      result.push((bits >> 16) & 0xFF);
+      result.push((bits >> 8) & 0xFF);
+      result.push(bits & 0xFF);
+    }
+
+    bits = (bits << 6) | map.indexOf(input.charAt(idx));
+  }
+
+  // Dump tail
+
+  tailbits = (max % 4) * 6;
+
+  if (tailbits === 0) {
+    result.push((bits >> 16) & 0xFF);
+    result.push((bits >> 8) & 0xFF);
+    result.push(bits & 0xFF);
+  } else if (tailbits === 18) {
+    result.push((bits >> 10) & 0xFF);
+    result.push((bits >> 2) & 0xFF);
+  } else if (tailbits === 12) {
+    result.push((bits >> 4) & 0xFF);
+  }
+
+  // Wrap into Buffer for NodeJS and leave Array for browser
+  if (NodeBuffer) {
+    // Support node 6.+ Buffer API when available
+    return NodeBuffer.from ? NodeBuffer.from(result) : new NodeBuffer(result);
+  }
+
+  return result;
+}
+
+function representYamlBinary(object /*, style*/) {
+  var result = '', bits = 0, idx, tail,
+      max = object.length,
+      map = BASE64_MAP;
+
+  // Convert every three bytes to 4 ASCII characters.
+
+  for (idx = 0; idx < max; idx++) {
+    if ((idx % 3 === 0) && idx) {
+      result += map[(bits >> 18) & 0x3F];
+      result += map[(bits >> 12) & 0x3F];
+      result += map[(bits >> 6) & 0x3F];
+      result += map[bits & 0x3F];
+    }
+
+    bits = (bits << 8) + object[idx];
+  }
+
+  // Dump tail
+
+  tail = max % 3;
+
+  if (tail === 0) {
+    result += map[(bits >> 18) & 0x3F];
+    result += map[(bits >> 12) & 0x3F];
+    result += map[(bits >> 6) & 0x3F];
+    result += map[bits & 0x3F];
+  } else if (tail === 2) {
+    result += map[(bits >> 10) & 0x3F];
+    result += map[(bits >> 4) & 0x3F];
+    result += map[(bits << 2) & 0x3F];
+    result += map[64];
+  } else if (tail === 1) {
+    result += map[(bits >> 2) & 0x3F];
+    result += map[(bits << 4) & 0x3F];
+    result += map[64];
+    result += map[64];
+  }
+
+  return result;
+}
+
+function isBinary(object) {
+  return NodeBuffer && NodeBuffer.isBuffer(object);
+}
+
+module.exports = new Type('tag:yaml.org,2002:binary', {
+  kind: 'scalar',
+  resolve: resolveYamlBinary,
+  construct: constructYamlBinary,
+  predicate: isBinary,
+  represent: representYamlBinary
+});
+
+
+/***/ }),
 /* 914 */,
 /* 915 */
 /***/ (function(module, __unusedexports, __webpack_require__) {
@@ -67925,8 +71893,8 @@ module.exports = {
   header: __webpack_require__(883),
   log: __webpack_require__(319),
   page: __webpack_require__(230),
-  pageTimings: __webpack_require__(181),
-  postData: __webpack_require__(740),
+  pageTimings: __webpack_require__(257),
+  postData: __webpack_require__(362),
   query: __webpack_require__(411),
   request: __webpack_require__(380),
   response: __webpack_require__(226),
@@ -67965,7 +71933,21 @@ module.exports = {"$id":"entry.json#","$schema":"http://json-schema.org/draft-06
 
 /***/ }),
 /* 920 */,
-/* 921 */,
+/* 921 */
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+"use strict";
+
+
+var Type = __webpack_require__(945);
+
+module.exports = new Type('tag:yaml.org,2002:seq', {
+  kind: 'sequence',
+  construct: function (data) { return data !== null ? data : []; }
+});
+
+
+/***/ }),
 /* 922 */
 /***/ (function(module, __unusedexports, __webpack_require__) {
 
@@ -67980,7 +71962,7 @@ module.exports = {
     default: 'xhr'
   },
 
-  jquery: __webpack_require__(457),
+  jquery: __webpack_require__(643),
   fetch: __webpack_require__(756),
   xhr: __webpack_require__(180),
   axios: __webpack_require__(655)
@@ -68997,9 +72979,135 @@ function duplex(writer, reader) {
 /***/ }),
 /* 943 */,
 /* 944 */,
-/* 945 */,
+/* 945 */
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+"use strict";
+
+
+var YAMLException = __webpack_require__(556);
+
+var TYPE_CONSTRUCTOR_OPTIONS = [
+  'kind',
+  'resolve',
+  'construct',
+  'instanceOf',
+  'predicate',
+  'represent',
+  'defaultStyle',
+  'styleAliases'
+];
+
+var YAML_NODE_KINDS = [
+  'scalar',
+  'sequence',
+  'mapping'
+];
+
+function compileStyleAliases(map) {
+  var result = {};
+
+  if (map !== null) {
+    Object.keys(map).forEach(function (style) {
+      map[style].forEach(function (alias) {
+        result[String(alias)] = style;
+      });
+    });
+  }
+
+  return result;
+}
+
+function Type(tag, options) {
+  options = options || {};
+
+  Object.keys(options).forEach(function (name) {
+    if (TYPE_CONSTRUCTOR_OPTIONS.indexOf(name) === -1) {
+      throw new YAMLException('Unknown option "' + name + '" is met in definition of "' + tag + '" YAML type.');
+    }
+  });
+
+  // TODO: Add tag format check.
+  this.tag          = tag;
+  this.kind         = options['kind']         || null;
+  this.resolve      = options['resolve']      || function () { return true; };
+  this.construct    = options['construct']    || function (data) { return data; };
+  this.instanceOf   = options['instanceOf']   || null;
+  this.predicate    = options['predicate']    || null;
+  this.represent    = options['represent']    || null;
+  this.defaultStyle = options['defaultStyle'] || null;
+  this.styleAliases = compileStyleAliases(options['styleAliases'] || null);
+
+  if (YAML_NODE_KINDS.indexOf(this.kind) === -1) {
+    throw new YAMLException('Unknown kind "' + this.kind + '" is specified for "' + tag + '" YAML type.');
+  }
+}
+
+module.exports = Type;
+
+
+/***/ }),
 /* 946 */,
-/* 947 */,
+/* 947 */
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+"use strict";
+
+
+var Type = __webpack_require__(945);
+
+var _toString = Object.prototype.toString;
+
+function resolveYamlPairs(data) {
+  if (data === null) return true;
+
+  var index, length, pair, keys, result,
+      object = data;
+
+  result = new Array(object.length);
+
+  for (index = 0, length = object.length; index < length; index += 1) {
+    pair = object[index];
+
+    if (_toString.call(pair) !== '[object Object]') return false;
+
+    keys = Object.keys(pair);
+
+    if (keys.length !== 1) return false;
+
+    result[index] = [ keys[0], pair[keys[0]] ];
+  }
+
+  return true;
+}
+
+function constructYamlPairs(data) {
+  if (data === null) return [];
+
+  var index, length, pair, keys, result,
+      object = data;
+
+  result = new Array(object.length);
+
+  for (index = 0, length = object.length; index < length; index += 1) {
+    pair = object[index];
+
+    keys = Object.keys(pair);
+
+    result[index] = [ keys[0], pair[keys[0]] ];
+  }
+
+  return result;
+}
+
+module.exports = new Type('tag:yaml.org,2002:pairs', {
+  kind: 'sequence',
+  resolve: resolveYamlPairs,
+  construct: constructYamlPairs
+});
+
+
+/***/ }),
 /* 948 */,
 /* 949 */
 /***/ (function(module, __unusedexports, __webpack_require__) {
@@ -69287,7 +73395,12 @@ module.exports = {
 /* 969 */,
 /* 970 */,
 /* 971 */,
-/* 972 */,
+/* 972 */
+/***/ (function(module) {
+
+module.exports = [{"code":"1xx","phrase":"**Informational**","description":"\"indicates an interim response for communicating connection status or request progress prior to completing the requested action and sending a final response.\" ~ [sure](http://www.urbandictionary.com/define.php?term=sure)","spec_title":"RFC7231#6.2","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.2"},{"code":"100","phrase":"Continue","description":"\"indicates that the initial part of a request has been received and has not yet been rejected by the server.\"","spec_title":"RFC7231#6.2.1","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.2.1"},{"code":"101","phrase":"Switching Protocols","description":"\"indicates that the server understands and is willing to comply with the client's request, via the Upgrade header field, for a change in the application protocol being used on this connection.\"","spec_title":"RFC7231#6.2.2","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.2.2"},{"code":"2xx","phrase":"**Successful**","description":"\"indicates that the client's request was successfully received, understood, and accepted.\" ~ [cool](https://twitter.com/DanaDanger/status/183316183494311936)","spec_title":"RFC7231#6.3","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.3"},{"code":"200","phrase":"OK","description":"\"indicates that the request has succeeded.\"","spec_title":"RFC7231#6.3.1","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.3.1"},{"code":"201","phrase":"Created","description":"\"indicates that the request has been fulfilled and has resulted in one or more new resources being created.\"","spec_title":"RFC7231#6.3.2","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.3.2"},{"code":"202","phrase":"Accepted","description":"\"indicates that the request has been accepted for processing, but the processing has not been completed.\"","spec_title":"RFC7231#6.3.3","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.3.3"},{"code":"203","phrase":"Non-Authoritative Information","description":"\"indicates that the request was successful but the enclosed payload has been modified from that of the origin server's 200 (OK) response by a transforming proxy.\"","spec_title":"RFC7231#6.3.4","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.3.4"},{"code":"204","phrase":"No Content","description":"\"indicates that the server has successfully fulfilled the request and that there is no additional content to send in the response payload body.\"","spec_title":"RFC7231#6.3.5","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.3.5"},{"code":"205","phrase":"Reset Content","description":"\"indicates that the server has fulfilled the request and desires that the user agent reset the \"document view\", which caused the request to be sent, to its original state as received from the origin server.\"","spec_title":"RFC7231#6.3.6","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.3.6"},{"code":"206","phrase":"Partial Content","description":"\"indicates that the server is successfully fulfilling a range request for the target resource by transferring one or more parts of the selected representation that correspond to the satisfiable ranges found in the requests's Range header field.\"","spec_title":"RFC7233#4.1","spec_href":"https://tools.ietf.org/html/rfc7233#section-4.1"},{"code":"3xx","phrase":"**Redirection**","description":"\"indicates that further action needs to be taken by the user agent in order to fulfill the request.\" ~ [ask that dude over there](https://twitter.com/DanaDanger/status/183316183494311936)","spec_title":"RFC7231#6.4","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.4"},{"code":"300","phrase":"Multiple Choices","description":"\"indicates that the target resource has more than one representation, each with its own more specific identifier, and information about the alternatives is being provided so that the user (or user agent) can select a preferred representation by redirecting its request to one or more of those identifiers.\"","spec_title":"RFC7231#6.4.1","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.4.1"},{"code":"301","phrase":"Moved Permanently","description":"\"indicates that the target resource has been assigned a new permanent URI and any future references to this resource ought to use one of the enclosed URIs.\"","spec_title":"RFC7231#6.4.2","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.4.2"},{"code":"302","phrase":"Found","description":"\"indicates that the target resource resides temporarily under a different URI.\"","spec_title":"RFC7231#6.4.3","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.4.3"},{"code":"303","phrase":"See Other","description":"\"indicates that the server is redirecting the user agent to a different resource, as indicated by a URI in the Location header field, that is intended to provide an indirect response to the original request.\"","spec_title":"RFC7231#6.4.4","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.4.4"},{"code":"304","phrase":"Not Modified","description":"\"indicates that a conditional GET request has been received and would have resulted in a 200 (OK) response if it were not for the fact that the condition has evaluated to false.\"","spec_title":"RFC7232#4.1","spec_href":"https://tools.ietf.org/html/rfc7232#section-4.1"},{"code":"305","phrase":"Use Proxy","description":"*deprecated*","spec_title":"RFC7231#6.4.5","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.4.5"},{"code":"307","phrase":"Temporary Redirect","description":"\"indicates that the target resource resides temporarily under a different URI and the user agent MUST NOT change the request method if it performs an automatic redirection to that URI.\"","spec_title":"RFC7231#6.4.7","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.4.7"},{"code":"4xx","phrase":"**Client Error**","description":"\"indicates that the client seems to have erred.\" ~ [*you* fucked up](https://twitter.com/DanaDanger/status/183316183494311936)","spec_title":"RFC7231#6.5","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.5"},{"code":"400","phrase":"Bad Request","description":"\"indicates that the server cannot or will not process the request because the received syntax is invalid, nonsensical, or exceeds some limitation on what the server is willing to process.\"","spec_title":"RFC7231#6.5.1","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.5.1"},{"code":"401","phrase":"Unauthorized","description":"\"indicates that the request has not been applied because it lacks valid authentication credentials for the target resource.\"","spec_title":"RFC7235#6.3.1","spec_href":"https://tools.ietf.org/html/rfc7235#section-3.1"},{"code":"402","phrase":"Payment Required","description":"*reserved*","spec_title":"RFC7231#6.5.2","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.5.2"},{"code":"403","phrase":"Forbidden","description":"\"indicates that the server understood the request but refuses to authorize it.\"","spec_title":"RFC7231#6.5.3","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.5.3"},{"code":"404","phrase":"Not Found","description":"\"indicates that the origin server did not find a current representation for the target resource or is not willing to disclose that one exists.\"","spec_title":"RFC7231#6.5.4","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.5.4"},{"code":"405","phrase":"Method Not Allowed","description":"\"indicates that the method specified in the request-line is known by the origin server but not supported by the target resource.\"","spec_title":"RFC7231#6.5.5","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.5.5"},{"code":"406","phrase":"Not Acceptable","description":"\"indicates that the target resource does not have a current representation that would be acceptable to the user agent, according to the proactive negotiation header fields received in the request, and the server is unwilling to supply a default representation.\"","spec_title":"RFC7231#6.5.6","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.5.6"},{"code":"407","phrase":"Proxy Authentication Required","description":"\"is similar to 401 (Unauthorized), but indicates that the client needs to authenticate itself in order to use a proxy.\"","spec_title":"RFC7235#3.2","spec_href":"https://tools.ietf.org/html/rfc7235#section-3.2"},{"code":"408","phrase":"Request Timeout","description":"\"indicates that the server did not receive a complete request message within the time that it was prepared to wait.\"","spec_title":"RFC7231#6.5.7","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.5.7"},{"code":"409","phrase":"Conflict","description":"\"indicates that the request could not be completed due to a conflict with the current state of the resource.\"","spec_title":"RFC7231#6.5.8","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.5.8"},{"code":"410","phrase":"Gone","description":"\"indicates that access to the target resource is no longer available at the origin server and that this condition is likely to be permanent.\"","spec_title":"RFC7231#6.5.9","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.5.9"},{"code":"411","phrase":"Length Required","description":"\"indicates that the server refuses to accept the request without a defined Content-Length.\"","spec_title":"RFC7231#6.5.10","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.5.10"},{"code":"412","phrase":"Precondition Failed","description":"\"indicates that one or more preconditions given in the request header fields evaluated to false when tested on the server.\"","spec_title":"RFC7232#4.2","spec_href":"https://tools.ietf.org/html/rfc7232#section-4.2"},{"code":"413","phrase":"Payload Too Large","description":"\"indicates that the server is refusing to process a request because the request payload is larger than the server is willing or able to process.\"","spec_title":"RFC7231#6.5.11","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.5.11"},{"code":"414","phrase":"URI Too Long","description":"\"indicates that the server is refusing to service the request because the request-target is longer than the server is willing to interpret.\"","spec_title":"RFC7231#6.5.12","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.5.12"},{"code":"415","phrase":"Unsupported Media Type","description":"\"indicates that the origin server is refusing to service the request because the payload is in a format not supported by the target resource for this method.\"","spec_title":"RFC7231#6.5.13","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.5.13"},{"code":"416","phrase":"Range Not Satisfiable","description":"\"indicates that none of the ranges in the request's Range header field overlap the current extent of the selected resource or that the set of ranges requested has been rejected due to invalid ranges or an excessive request of small or overlapping ranges.\"","spec_title":"RFC7233#4.4","spec_href":"https://tools.ietf.org/html/rfc7233#section-4.4"},{"code":"417","phrase":"Expectation Failed","description":"\"indicates that the expectation given in the request's Expect header field could not be met by at least one of the inbound servers.\"","spec_title":"RFC7231#6.5.14","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.5.14"},{"code":"418","phrase":"I'm a teapot","description":"\"Any attempt to brew coffee with a teapot should result in the error code 418 I'm a teapot.\"","spec_title":"RFC2324#2.3.1","spec_href":"https://tools.ietf.org/html/rfc2324#section-2.3.1"},{"code":"426","phrase":"Upgrade Required","description":"\"indicates that the server refuses to perform the request using the current protocol but might be willing to do so after the client upgrades to a different protocol.\"","spec_title":"RFC7231#6.5.15","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.5.15"},{"code":"5xx","phrase":"**Server Error**","description":"\"indicates that the server is aware that it has erred or is incapable of performing the requested method.\" ~ [*we* fucked up](https://twitter.com/DanaDanger/status/183316183494311936)","spec_title":"RFC7231#6.6","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.6"},{"code":"500","phrase":"Internal Server Error","description":"\"indicates that the server encountered an unexpected condition that prevented it from fulfilling the request.\"","spec_title":"RFC7231#6.6.1","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.6.1"},{"code":"501","phrase":"Not Implemented","description":"\"indicates that the server does not support the functionality required to fulfill the request.\"","spec_title":"RFC7231#6.6.2","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.6.2"},{"code":"502","phrase":"Bad Gateway","description":"\"indicates that the server, while acting as a gateway or proxy, received an invalid response from an inbound server it accessed while attempting to fulfill the request.\"","spec_title":"RFC7231#6.6.3","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.6.3"},{"code":"503","phrase":"Service Unavailable","description":"\"indicates that the server is currently unable to handle the request due to a temporary overload or scheduled maintenance, which will likely be alleviated after some delay.\"","spec_title":"RFC7231#6.6.4","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.6.4"},{"code":"504","phrase":"Gateway Time-out","description":"\"indicates that the server, while acting as a gateway or proxy, did not receive a timely response from an upstream server it needed to access in order to complete the request.\"","spec_title":"RFC7231#6.6.5","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.6.5"},{"code":"505","phrase":"HTTP Version Not Supported","description":"\"indicates that the server does not support, or refuses to support, the protocol version that was used in the request message.\"","spec_title":"RFC7231#6.6.6","spec_href":"https://tools.ietf.org/html/rfc7231#section-6.6.6"},{"code":"102","phrase":"Processing","description":"\"is an interim response used to inform the client that the server has accepted the complete request, but has not yet completed it.\"","spec_title":"RFC5218#10.1","spec_href":"https://tools.ietf.org/html/rfc2518#section-10.1"},{"code":"103","phrase":"Early Hints","description":"\"the server is likely to send a final response with the header fields included in the informational response\"","spec_title":"RFC8297#2","spec_href":"https://tools.ietf.org/html/rfc8297#section-2"},{"code":"207","phrase":"Multi-Status","description":"\"provides status for multiple independent operations.\"","spec_title":"RFC5218#10.2","spec_href":"https://tools.ietf.org/html/rfc2518#section-10.2"},{"code":"226","phrase":"IM Used","description":"\"The server has fulfilled a GET request for the resource, and the response is a representation of the result of one or more instance-manipulations applied to the current instance.\"","spec_title":"RFC3229#10.4.1","spec_href":"https://tools.ietf.org/html/rfc3229#section-10.4.1"},{"code":"308","phrase":"Permanent Redirect","description":"\"The target resource has been assigned a new permanent URI and any future references to this resource outght to use one of the enclosed URIs. [...] This status code is similar to 301 Moved Permanently (Section 7.3.2 of rfc7231), except that it does not allow rewriting the request method from POST to GET.\"","spec_title":"RFC7538","spec_href":"https://tools.ietf.org/html/rfc7538"},{"code":"421","phrase":"Misdirected request","description":"\"indicates that the request was directed at a server that is not able to produce a response.  This can be sent by a server that is not configured to produce responses for the combination of scheme and authority that are included in the request URI.\"","spec_title":"RFC7540#9.1.2","spec_href":"https://tools.ietf.org/html/rfc7540#section-9.1.2"},{"code":"422","phrase":"Unprocessable Entity","description":"\"means the server understands the content type of the request entity (hence a 415(Unsupported Media Type) status code is inappropriate), and the syntax of the request entity is correct (thus a 400 (Bad Request) status code is inappropriate) but was unable to process the contained instructions.\"","spec_title":"RFC5218#10.3","spec_href":"https://tools.ietf.org/html/rfc2518#section-10.3"},{"code":"423","phrase":"Locked","description":"\"means the source or destination resource of a method is locked.\"","spec_title":"RFC5218#10.4","spec_href":"https://tools.ietf.org/html/rfc2518#section-10.4"},{"code":"424","phrase":"Failed Dependency","description":"\"means that the method could not be performed on the resource because the requested action depended on another action and that action failed.\"","spec_title":"RFC5218#10.5","spec_href":"https://tools.ietf.org/html/rfc2518#section-10.5"},{"code":"428","phrase":"Precondition Required","description":"\"indicates that the origin server requires the request to be conditional.\"","spec_title":"RFC6585#3","spec_href":"https://tools.ietf.org/html/rfc6585#section-3"},{"code":"429","phrase":"Too Many Requests","description":"\"indicates that the user has sent too many requests in a given amount of time (\"rate limiting\").\"","spec_title":"RFC6585#4","spec_href":"https://tools.ietf.org/html/rfc6585#section-4"},{"code":"431","phrase":"Request Header Fields Too Large","description":"\"indicates that the server is unwilling to process the request because its header fields are too large.\"","spec_title":"RFC6585#5","spec_href":"https://tools.ietf.org/html/rfc6585#section-5"},{"code":"451","phrase":"Unavailable For Legal Reasons","description":"\"This status code indicates that the server is denying access to the resource in response to a legal demand.\"","spec_title":"draft-ietf-httpbis-legally-restricted-status","spec_href":"https://tools.ietf.org/html/draft-ietf-httpbis-legally-restricted-status"},{"code":"506","phrase":"Variant Also Negotiates","description":"\"indicates that the server has an internal configuration error: the chosen variant resource is configured to engage in transparent content negotiation itself, and is therefore not a proper end point in the negotiation process.\"","spec_title":"RFC2295#8.1","spec_href":"https://tools.ietf.org/html/rfc2295#section-8.1"},{"code":"507","phrase":"Insufficient Storage","description":"\"means the method could not be performed on the resource because the server is unable to store the representation needed to successfully complete the request.\"","spec_title":"RFC5218#10.6","spec_href":"https://tools.ietf.org/html/rfc2518#section-10.6"},{"code":"511","phrase":"Network Authentication Required","description":"\"indicates that the client needs to authenticate to gain network access.\"","spec_title":"RFC6585#6","spec_href":"https://tools.ietf.org/html/rfc6585#section-6"},{"code":"7xx","phrase":"**Developer Error**","description":"[err](http://www.urbandictionary.com/define.php?term=err)","spec_title":"7xx-rfc","spec_href":"http://documentup.com/joho/7XX-rfc"}];
+
+/***/ }),
 /* 973 */,
 /* 974 */,
 /* 975 */,
@@ -69444,7 +73557,21 @@ module.exports = decode;
 /* 985 */,
 /* 986 */,
 /* 987 */,
-/* 988 */,
+/* 988 */
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+"use strict";
+
+
+var Type = __webpack_require__(945);
+
+module.exports = new Type('tag:yaml.org,2002:map', {
+  kind: 'mapping',
+  construct: function (data) { return data !== null ? data : {}; }
+});
+
+
+/***/ }),
 /* 989 */,
 /* 990 */,
 /* 991 */,
