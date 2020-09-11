@@ -6,8 +6,10 @@ const path = require('path');
 const core = require('@actions/core');
 const github = require('@actions/github');
 const yaml = require('js-yaml');
+const glob = require('glob');
 
 const converter = require('widdershins');
+const { promisify } = require('util');
 
 const parsers = [
   {
@@ -32,14 +34,17 @@ async function parseFile(specPath) {
   return parser.parse(data);
 }
 
-async function main() {
-  const spec = await parseFile(core.getInput('spec-path'));
+async function processSpec(specPath) {
+  console.log('processing', specPath);
+
+  const spec = await parseFile(specPath);
 
   let docs = await converter.convert(spec, {});
 
   // TODO: Use remark to modify the document in a more robust way
   docs = docs.substring(docs.indexOf('---', 3) + 3);
   docs = docs.replace(/> Scroll down for code samples.*/g, '');
+  docs = `> From spec: ${specPath}` + docs;
 
   console.log('\n' + docs + '\n');
 
@@ -50,11 +55,28 @@ async function main() {
     return;
   }
 
-  github.getOctokit(core.getInput('github-token')).issues.createComment({
+  await github.getOctokit(core.getInput('github-token')).issues.createComment({
     ...github.context.repo,
     issue_number: pullRequest.number,
     body: docs,
   });
+}
+
+async function main() {
+  let specPaths = core.getInput('spec-paths');
+  if (typeof specPaths === 'string') {
+    specPaths = [specPaths];
+  }
+
+  console.log('specpaths', specPaths);
+  await Promise.all(
+    specPaths.map(async (specGlob) => {
+      console.log('expanding glob for ', specGlob);
+      const paths = await promisify(glob)(specGlob);
+      console.log('paths', paths);
+      return Promise.all(paths.map(processSpec));
+    })
+  );
 }
 
 main().catch((err) => core.setFailed(err.message));

@@ -20,6 +20,7 @@
   "dependencies": {
     "@actions/core": "^1.2.5",
     "@actions/github": "^4.0.0",
+    "glob": "^7.1.6",
     "js-yaml": "^3.14.0",
     "widdershins": "^4.0.1"
   },
