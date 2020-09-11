@@ -1,4 +1,4 @@
-on: [push]
+on: [pull_request]
 
 jobs:
   post_openapi_docs:

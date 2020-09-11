@@ -14,7 +14,7 @@ const main = async () => {
 
   const docs = await widdershins.convert(spec, {});
 
-  console.log('payload:', github.context.payload);
+  console.log('context:', github.context);
 
   const githubToken = core.getInput('github-token');
   console.log('token:', githubToken);
