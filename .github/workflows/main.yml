@@ -3,12 +3,12 @@ on: [pull_request]
 jobs:
   post_openapi_docs:
     runs-on: ubuntu-latest
-    name: Post the OpenAPI docs to the PR in a comment
+    name: Review all OpenAPI specs
     steps:
       - name: Checkout
         uses: actions/checkout@v1
-      - name: Post OpenAPI docs
-        id: post_openid
+      - name: Review OpenAPI specs
+        id: review_oas
         uses: ./
         with:
           spec-paths: ./fixtures/*.@(json|yaml|yml)

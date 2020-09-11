@@ -1,6 +1,9 @@
-# OpenAPI Docs in PR Action
+# OpenAPI Review Action
 
-A GitHub action that posts your OpenAPI docs as a comment to your PR whenever they change.
+A GitHub action for reviewing changes to your OpenAPI specs.
+
+This action supports the `pull_request` event and posts comments to PRs which make changes to your
+OpenAPI specs which help your reviewers ensure your specs are in a good condition.
 
 ## Example usage
 
