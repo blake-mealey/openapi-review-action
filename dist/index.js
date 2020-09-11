@@ -6011,8 +6011,7 @@ const main = async () => {
 
   const spec = JSON.parse(await fs.readFile(specPath, 'utf-8'));
 
-  const docs = await converter.convert(spec, {});
-
+  let docs = await converter.convert(spec, {});
   docs = docs.substring(docs.indexOf('---', 3) + 3);
   docs = docs.replace(/> Scroll down for code samples.*/g, '');
 
