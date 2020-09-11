@@ -6513,6 +6513,7 @@ module.exports = function hr(state, startLine, endLine, silent) {
 
 
 const { promises: fs } = __webpack_require__(747);
+const path = requre('path');
 
 const core = __webpack_require__(470);
 const github = __webpack_require__(469);
