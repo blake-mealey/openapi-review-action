@@ -13,6 +13,7 @@ const main = async () => {
   const spec = await fs.readFile(specPath, 'utf-8');
 
   const docs = await widdershins.convert(spec, {});
+  console.log('\n' + docs + '\n');
 
   console.log('context:', github.context);
 
