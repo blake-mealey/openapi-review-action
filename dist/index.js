@@ -6004,14 +6004,14 @@ const { promises: fs } = __webpack_require__(747);
 const core = __webpack_require__(470);
 const github = __webpack_require__(469);
 
-const widdershins = __webpack_require__(56);
+const converter = __webpack_require__(56);
 
 const main = async () => {
   const specPath = core.getInput('spec-path');
 
-  const spec = await fs.readFile(specPath, 'utf-8');
+  const spec = JSON.parse(await fs.readFile(specPath, 'utf-8'));
 
-  const docs = await widdershins.convert(spec, {});
+  const docs = await converter.convert(spec, {});
   console.log('\n' + docs + '\n');
 
   console.log('context:', github.context);

@@ -5,14 +5,14 @@ const { promises: fs } = require('fs');
 const core = require('@actions/core');
 const github = require('@actions/github');
 
-const widdershins = require('widdershins');
+const converter = require('widdershins');
 
 const main = async () => {
   const specPath = core.getInput('spec-path');
 
-  const spec = await fs.readFile(specPath, 'utf-8');
+  const spec = JSON.parse(await fs.readFile(specPath, 'utf-8'));
 
-  const docs = await widdershins.convert(spec, {});
+  const docs = await converter.convert(spec, {});
   console.log('\n' + docs + '\n');
 
   console.log('context:', github.context);
