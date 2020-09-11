@@ -5996,21 +5996,25 @@ module.exports = function hr(state, startLine, endLine, silent) {
 /* 104 */
 /***/ (function(__unusedmodule, __unusedexports, __webpack_require__) {
 
+"use strict";
+
+
+const { promises: fs } = __webpack_require__(747);
+
 const core = __webpack_require__(470);
 const github = __webpack_require__(469);
+
 const widdershins = __webpack_require__(56);
-const { promises: fs } = __webpack_require__(747);
 
 const main = async () => {
   const specPath = core.getInput('spec-path');
-
   console.log(`Processing spec: ${specPath}`);
 
   const spec = await fs.readFile(specPath, 'utf-8');
+  console.log('Spec:', spec);
 
   const docs = widdershins.convert(spec, {});
-
-  console.log(docs);
+  console.log('Docs:', docs);
 };
 
 main().catch((err) => core.setFailed(err.message));

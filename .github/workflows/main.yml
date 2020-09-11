@@ -5,6 +5,8 @@ jobs:
     runs-on: ubuntu-latest
     name: Post the OpenAPI docs to the PR in a comment
     steps:
+      - name: Checkout
+        uses: actions/checkout@v1
       - name: Post OpenAPI docs
         id: post_openid
         uses: blake-mealey/openapi-docs-in-pr-action@master
