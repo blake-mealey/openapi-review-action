@@ -9,4 +9,4 @@ jobs:
         id: post_openid
         uses: blake-mealey/openapi-docs-in-pr-action@master
         with:
-          spec-path: fixtures/api-with-examples.yaml
+          spec-path: ./fixtures/api-with-examples.yaml
