@@ -1,22 +1,23 @@
 {
-  "name": "openapi-docs-in-pr-action",
+  "name": "openapi-review-action",
   "version": "0.0.1",
-  "description": "A GitHub action that posts your OpenAPI docs as a comment to your PR",
+  "description": "A GitHub action for reviewing changes to your OpenAPI specs",
   "main": "dist/index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "ncc build index.js"
+    "build": "ncc build index.js",
+    "build:watch": "npm run build -- --watch"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/blake-mealey/openapi-docs-in-pr-action.git"
+    "url": "git+https://github.com/blake-mealey/openapi-review-action.git"
   },
   "author": "Blake Mealey",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/blake-mealey/openapi-docs-in-pr-action/issues"
+    "url": "https://github.com/blake-mealey/openapi-review-action/issues"
   },
-  "homepage": "https://github.com/blake-mealey/openapi-docs-in-pr-action#readme",
+  "homepage": "https://github.com/blake-mealey/openapi-review-action#readme",
   "dependencies": {
     "@actions/core": "^1.2.5",
     "@actions/github": "^4.0.0",
@@ -29,7 +30,8 @@
   "private": true,
   "devDependencies": {
     "@zeit/ncc": "^0.22.3",
-    "husky": "^4.3.0"
+    "husky": "^4.3.0",
+    "openapi-diff": "^0.23.3"
   },
   "husky": {
     "hooks": {}

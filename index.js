@@ -8,6 +8,7 @@ const yaml = require('js-yaml');
 const glob = require('glob');
 const axios = require('axios');
 const diff = require('what-the-diff');
+const openapiDiff = require('openapi-diff');
 
 const converter = require('widdershins');
 const { promisify } = require('util');
@@ -79,8 +80,9 @@ async function main() {
     return;
   }
 
+  console.log(github.context);
+
   const diff = await getDiff();
-  console.log(diff);
 
   let specPaths = core.getInput('spec-paths');
   if (typeof specPaths === 'string') {
