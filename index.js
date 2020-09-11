@@ -13,17 +13,6 @@ const diff = require('what-the-diff');
 const converter = require('widdershins');
 const { promisify } = require('util');
 
-const parsers = [
-  {
-    extensions: ['.json'],
-    parse: (str) => JSON.parse(str),
-  },
-  {
-    extensions: ['.yaml', '.yml'],
-    parse: (str) => yaml.safeLoad(str),
-  },
-];
-
 function getPullRequest() {
   return github.context.payload.pull_request;
 }
@@ -38,14 +27,7 @@ function getConverterOptions() {
 
 async function parseFile(specPath) {
   const data = await fs.readFile(specPath, 'utf-8');
-
-  const ext = path.extname(specPath);
-  const parser = parsers.find(({ extensions }) => extensions.includes(ext));
-  if (!parser) {
-    throw new Error(`Unkown file extension ${ext}`);
-  }
-
-  return parser.parse(data);
+  return yaml.safeLoad(data);
 }
 
 async function processSpec(specPath) {
