@@ -12,3 +12,4 @@ jobs:
         uses: blake-mealey/openapi-docs-in-pr-action@master
         with:
           spec-path: ./fixtures/api-with-examples.yaml
+          github-token: ${{ secrets.GITHUB_TOKEN }}

@@ -6008,13 +6008,16 @@ const widdershins = __webpack_require__(56);
 
 const main = async () => {
   const specPath = core.getInput('spec-path');
-  console.log(`Processing spec: ${specPath}`);
 
   const spec = await fs.readFile(specPath, 'utf-8');
-  console.log('Spec:', spec);
 
-  const docs = widdershins.convert(spec, {});
-  console.log('Docs:', docs);
+  const docs = await widdershins.convert(spec, {});
+
+  console.log('payload:', github.context.payload);
+
+  const githubToken = core.getInput('github-token');
+  console.log('token:', githubToken);
+  //github.getOctokit(githubToken).pulls.createReviewComment({});
 };
 
 main().catch((err) => core.setFailed(err.message));
