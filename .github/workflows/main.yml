@@ -11,5 +11,5 @@ jobs:
         id: post_openid
         uses: ./
         with:
-          spec-path: ./fixtures/api-with-examples.yaml
+          spec-paths: ./fixtures/api-with-examples.yaml
           github-token: ${{ secrets.GITHUB_TOKEN }}

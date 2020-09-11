@@ -6,8 +6,10 @@ const path = require('path');
 const core = require('@actions/core');
 const github = require('@actions/github');
 const yaml = require('js-yaml');
+const glob = require('glob');
 
 const converter = require('widdershins');
+const { promisify } = require('util');
 
 const parsers = [
   {
@@ -32,8 +34,8 @@ async function parseFile(specPath) {
   return parser.parse(data);
 }
 
-async function main() {
-  const spec = await parseFile(core.getInput('spec-path'));
+async function processSpec(specPath) {
+  const spec = await parseFile(specPath);
 
   let docs = await converter.convert(spec, {});
 
@@ -50,11 +52,25 @@ async function main() {
     return;
   }
 
-  github.getOctokit(core.getInput('github-token')).issues.createComment({
+  await github.getOctokit(core.getInput('github-token')).issues.createComment({
     ...github.context.repo,
     issue_number: pullRequest.number,
     body: docs,
   });
+}
+
+async function main() {
+  let specPaths = core.getInput('spec-paths');
+  if (typeof specPaths === 'string') {
+    specPaths = [specPaths];
+  }
+
+  await Promise.all(
+    specPaths.map(async (specGlob) => {
+      const paths = await promisify(glob)(specGlob);
+      return Promise.all(paths.map(processSpec));
+    })
+  );
 }
 
 main().catch((err) => core.setFailed(err.message));

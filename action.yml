@@ -1,8 +1,8 @@
 name: OpenAPI Docs in PR
 description: View your OpenAPI Docs as a comment in your PR
 inputs:
-  spec-path:
-    description: The path to the OpenAPI spec to process
+  spec-paths:
+    description: The paths to the OpenAPI specs to process (single glob or array of globs)
     required: true
   github-token:
     description: Your GitHub token to allow the action to create PR comments
