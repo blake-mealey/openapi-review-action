@@ -35,7 +35,7 @@ async function parseFile(specPath) {
 }
 
 async function processSpec(specPath) {
-  console.log('processing', specPath);
+  // console.log('processing', specPath);
 
   const spec = await parseFile(specPath);
 
@@ -68,12 +68,14 @@ async function main() {
     specPaths = [specPaths];
   }
 
-  console.log('specpaths', specPaths);
+  console.log(github.context);
+
+  // console.log('specpaths', specPaths);
   await Promise.all(
     specPaths.map(async (specGlob) => {
-      console.log('expanding glob for ', specGlob);
+      // console.log('expanding glob for ', specGlob);
       const paths = await promisify(glob)(specGlob);
-      console.log('paths', paths);
+      // console.log('paths', paths);
       return Promise.all(paths.map(processSpec));
     })
   );

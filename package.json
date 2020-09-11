@@ -30,8 +30,6 @@
     "husky": "^4.3.0"
   },
   "husky": {
-    "hooks": {
-      "pre-commit": "npm run build"
-    }
+    "hooks": {}
   }
 }
