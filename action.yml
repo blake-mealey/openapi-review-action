@@ -4,6 +4,9 @@ inputs:
   spec-path:
     description: The path to the OpenAPI spec to process
     required: true
+  github-token:
+    description: Your GitHub token to allow the action to create PR comments
+    required: true
 runs:
   using: node12
   main: dist/index.js
