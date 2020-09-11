@@ -11,5 +11,5 @@ jobs:
         id: post_openid
         uses: ./
         with:
-          spec-paths: ./fixtures/*.{json|yaml}
+          spec-paths: ./fixtures/*.@(json|yaml)
           github-token: ${{ secrets.GITHUB_TOKEN }}
