@@ -7,6 +7,9 @@ inputs:
   github-token:
     description: Your GitHub token to allow the action to create PR comments
     required: true
+  converter-options:
+    description: Optionally pass options to the widdershins OpenAPI docs converter
+    required: false
 runs:
   using: node12
   main: dist/index.js

@@ -32,6 +32,10 @@ function getToken() {
   return core.getInput('github-token');
 }
 
+function getConverterOptions() {
+  return core.getInput('converter-options') || {};
+}
+
 async function parseFile(specPath) {
   const data = await fs.readFile(specPath, 'utf-8');
 
@@ -49,7 +53,7 @@ async function processSpec(specPath) {
 
   const spec = await parseFile(specPath);
 
-  let docs = await converter.convert(spec, {});
+  let docs = await converter.convert(spec, getConverterOptions());
 
   // TODO: Use remark to modify the document in a more robust way
   docs = docs.substring(docs.indexOf('---', 3) + 3);
