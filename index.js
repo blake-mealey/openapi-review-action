@@ -44,6 +44,11 @@ async function processSpec(specPath) {
   // TODO: Use remark to modify the document in a more robust way
   docs = docs.substring(docs.indexOf('---', 3) + 3);
   docs = docs.replace(/> Scroll down for code samples.*/g, '');
+  let index = docs.indexOf('</h1>' + 5);
+  docs =
+    docs.substring(0, index) +
+    `\n> From ${specPath}` +
+    docs.substring(index + 1);
 
   console.log('\n' + docs + '\n');
 
