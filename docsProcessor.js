@@ -22,11 +22,11 @@ const removeUnwantedNodes = () => (tree) => {
 };
 
 const wrapOperationsWithDetails = () => (tree) => {
-  console.log(tree);
+  // console.log(JSON.stringify(tree.children[1], null, 2));
   visit(tree, { type: 'heading', depth: 2 }, (node, index, parent) => {
     parent.children.splice(index + 1, 0, {
       type: 'html',
-      value: '<details>\n<summary>Description:"</summary>',
+      value: '<details>\n<summary>Documentation:</summary>',
     });
 
     let nextIndex = parent.children
@@ -55,8 +55,26 @@ const insertChangeNotifier = (specsDiff) => (tree) => {
       type: 'paragraph',
       children: [
         {
-          type: 'text',
-          value: '🚨 **BREAKING CHANGES** 🚨',
+          type: 'paragraph',
+          children: [
+            {
+              type: 'text',
+              value: '🚨 ',
+            },
+            {
+              type: 'strong',
+              children: [
+                {
+                  type: 'text',
+                  value: 'BREAKING CHANGES',
+                },
+              ],
+            },
+            {
+              type: 'text',
+              value: ' 🚨',
+            },
+          ],
         },
       ],
     });
@@ -65,14 +83,14 @@ const insertChangeNotifier = (specsDiff) => (tree) => {
   });
 };
 
-// const fs = require('fs');
-// const file = fs.readFileSync('./test.md', { encoding: 'utf-8' });
+const fs = require('fs');
+const file = fs.readFileSync('./test.md', { encoding: 'utf-8' });
 
 // const result = remark()
 //   .use(removeUnwantedNodes)
 //   .use(wrapOperationsWithDetails)
-//   .use(insertChangeNotifier);
-// .processSync(file);
+//   .use(insertChangeNotifier)
+//   .processSync(file);
 // console.log(result.contents);
 
 module.exports = {
