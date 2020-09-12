@@ -135,8 +135,8 @@ async function getSpecVersions(path) {
   }
 
   return {
-    sourceSpec: await getVersion('head'),
-    destinationSpec: await getVersion('base'),
+    sourceSpec: await getVersion('base'),
+    destinationSpec: await getVersion('head'),
   };
 }
 
