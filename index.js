@@ -65,7 +65,11 @@ async function processSpec(specPath) {
   failOnBreakingChanges(specPath, specsDiff);
 
   let docs = await converter.convert(spec, getConverterOptions());
-  docs = await docsProcessor.process(docs, specsDiff);
+  docs = await docsProcessor.process(
+    docs,
+    specVersions.map((spec) => yaml.safeLoad(spec.content)),
+    specsDiff
+  );
 
   const comment = `
 # OpenAPI Review Action
