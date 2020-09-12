@@ -52,12 +52,14 @@ async function processSpec(specPath) {
 }
 
 async function getDiff() {
-  const prDiff = await getOctokit().pulls.get({
-    owner: getPullRequest().base.repo.owner.login,
-    repo: getPullRequest().base.repo.name,
-    pull_number: getPullRequest().number,
-    mediaType: { format: 'diff' },
-  });
+  const prDiff = (
+    await getOctokit().pulls.get({
+      owner: getPullRequest().base.repo.owner.login,
+      repo: getPullRequest().base.repo.name,
+      pull_number: getPullRequest().number,
+      mediaType: { format: 'diff' },
+    })
+  ).data;
 
   return diff.parse(prDiff);
 }
@@ -80,18 +82,22 @@ async function getFile(path) {
   };
 
   return {
-    base: await getOctokit().repos.getContent({
-      ...baseOptions,
-      owner: getPullRequest().base.repo.owner.login,
-      repo: getPullRequest().base.repo.name,
-      ref: getPullRequest().base.ref,
-    }),
-    head: await getOctokit().repos.getContent({
-      ...baseOptions,
-      owner: getPullRequest().head.repo.owner.login,
-      repo: getPullRequest().head.repo.name,
-      ref: getPullRequest().head.ref,
-    }),
+    base: (
+      await getOctokit().repos.getContent({
+        ...baseOptions,
+        owner: getPullRequest().base.repo.owner.login,
+        repo: getPullRequest().base.repo.name,
+        ref: getPullRequest().base.ref,
+      })
+    ).data,
+    head: (
+      await getOctokit().repos.getContent({
+        ...baseOptions,
+        owner: getPullRequest().head.repo.owner.login,
+        repo: getPullRequest().head.repo.name,
+        ref: getPullRequest().head.ref,
+      })
+    ).data,
   };
 }
 
