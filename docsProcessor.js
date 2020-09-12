@@ -44,6 +44,8 @@ const wrapOperationsWithDetails = () => (tree) => {
 };
 
 function getOperationLocation(specs, operationId) {
+  console.log(specs);
+  console.log('find operation location', operationId);
   for (const spec of specs) {
     for (const [route, operations] of Object.entries(spec.paths)) {
       for (const [method, operation] of Object.entries(operations)) {
@@ -59,6 +61,8 @@ function findMatchingDifference(diffs, operationLocation) {
   if (!diffs) {
     return;
   }
+  console.log(diffs);
+  console.log('find matching diff');
 
   return diffs.find((diff) =>
     diff.sourceSpecEntityDetails.find(({ location }) =>
@@ -79,6 +83,7 @@ const insertChangeNotifier = (specs, specsDiff) => (tree) => {
     const idNode = parent.children[index + 1].children[0];
     const operationId = idNode.value.match(/"opId(.*)"/)[1];
     const operationLocation = getOperationLocation(specs, operationId);
+    console.log('location', operationLocation);
 
     let notifierNode;
     if (
@@ -95,6 +100,7 @@ const insertChangeNotifier = (specs, specsDiff) => (tree) => {
         operationLocation
       )
     ) {
+      console.log('non breaking change notifier');
       notifierNode = createNotifierNode('CHANGES', '⚠');
     }
 
@@ -104,78 +110,6 @@ const insertChangeNotifier = (specs, specsDiff) => (tree) => {
     }
   });
 };
-
-/*const fs = require('fs');
-const specs = [
-  JSON.parse(
-    fs.readFileSync('fixtures/api-with-examples.json', {
-      encoding: 'utf-8',
-    })
-  ),
-];
-const specsDiff = {
-  breakingDifferences: [
-    {
-      type: 'breaking',
-      action: 'remove',
-      code: 'response.status-code.remove',
-      destinationSpecEntityDetails: [],
-      entity: 'response.status-code',
-      source: 'openapi-diff',
-      sourceSpecEntityDetails: [
-        {
-          location: 'paths./.get.responses.200',
-          value: {
-            description: '200 response',
-            content: {
-              'application/json': {
-                examples: {
-                  foo: {
-                    value: {
-                      versions: [
-                        {
-                          status: 'CURRENT',
-                          updated: '2011-01-21T11:33:21Z',
-                          id: 'v2.0',
-                          links: [
-                            {
-                              href: 'http://127.0.0.1:8774/v2/',
-                              rel: 'self',
-                            },
-                          ],
-                        },
-                        {
-                          updated: '2013-07-23T11:33:21Z',
-                          id: 'v3.0',
-                          links: [
-                            {
-                              href: 'http://127.0.0.1:8774/v3/',
-                              rel: 'self',
-                            },
-                          ],
-                        },
-                      ],
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      ],
-    },
-  ],
-  breakingDifferencesFound: true,
-  nonBreakingDifferences: [],
-  unclassifiedDifferences: [],
-};
-const file = fs.readFileSync('test.md', { encoding: 'utf-8' });
-const result = remark()
-  .use(removeUnwantedNodes)
-  .use(wrapOperationsWithDetails)
-  .use(insertChangeNotifier, specs, specsDiff)
-  .processSync(file);
-console.log(result.contents); */
 
 module.exports = {
   removeUnwantedNodes,

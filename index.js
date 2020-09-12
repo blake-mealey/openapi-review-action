@@ -95,7 +95,7 @@ async function processSpec(specPath) {
   };
 
   const comment = `
-# OpenAPI Review Action
+# OpenAPI Review
 
 > **Spec: ${specPath}**
 
