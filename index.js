@@ -23,6 +23,9 @@ function getPullRequest() {
 function getConverterOptions() {
   return {
     omitHeader: true,
+    summary: true,
+    codeSamples: false,
+    language_tabs: [],
     ...(core.getInput('converter-options') || {}),
   };
 }
