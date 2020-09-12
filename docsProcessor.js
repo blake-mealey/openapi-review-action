@@ -4,6 +4,7 @@ const remark = require('remark');
 const visit = require('unist-util-visit');
 const find = require('unist-util-find');
 const is = require('unist-util-is');
+const u = require('unist-builder');
 
 const removeUnwantedNodes = () => (tree) => {
   visit(tree, 'html', (node, index, parent) => {
@@ -23,59 +24,88 @@ const removeUnwantedNodes = () => (tree) => {
 
 const wrapOperationsWithDetails = () => (tree) => {
   visit(tree, { type: 'heading', depth: 2 }, (node, index, parent) => {
-    parent.children.splice(index + 1, 0, {
-      type: 'html',
-      value: '<details>\n<summary>Docs</summary>',
-    });
+    parent.children.splice(
+      index + 2,
+      0,
+      u('html', '<details>\n<summary>Docs</summary>')
+    );
 
     let nextIndex = parent.children
-      .slice(index + 1)
+      .slice(index + 2)
       .findIndex((node) => is(node, { type: 'heading', depth: 2 }));
     if (nextIndex === -1) {
       nextIndex = parent.children.length;
     } else {
-      nextIndex += index + 1;
+      nextIndex += index + 2;
     }
 
-    parent.children.splice(nextIndex, 0, {
-      type: 'html',
-      value: '</details>',
-    });
+    parent.children.splice(nextIndex, 0, u('html', '</details>'));
   });
 };
 
-const insertChangeNotifier = (specsDiff) => (tree) => {
+function getOperationLocation(specs, operationId) {
+  for (const spec of specs) {
+    for (const [route, operations] of Object.entries(spec.paths)) {
+      for (const [method, operation] of Object.entries(operations)) {
+        if (operation.operationId === operationId) {
+          return ['paths', route, method].join('.');
+        }
+      }
+    }
+  }
+}
+
+function findMatchingDifference(diffs, operationLocation) {
+  if (!diffs) {
+    return;
+  }
+
+  return diffs.find(
+    (diff) =>
+      diff.sourceSpecEntityDetails.find(({ location }) =>
+        location.startsWith(operationLocation)
+      ) ||
+      diff.destinationSpecEntityDetails.find(({ location }) =>
+        location.startsWith(operationLocation)
+      )
+  );
+}
+
+const insertChangeNotifier = (specs, specsDiff) => (tree) => {
   visit(tree, { type: 'heading', depth: 2 }, (node, index, parent) => {
-    // TODO: Determine which (if any) change notifier to insert
-    // ⚠ **CHANGES** ⚠
-    // parent.children.splice(index + 1, 0, {
-    //   type: 'paragraph',
-    //   children: [
-    //     {
-    //       type: 'paragraph',
-    //       children: [
-    //         {
-    //           type: 'text',
-    //           value: '🚨 ',
-    //         },
-    //         {
-    //           type: 'strong',
-    //           children: [
-    //             {
-    //               type: 'text',
-    //               value: 'BREAKING CHANGES',
-    //             },
-    //           ],
-    //         },
-    //         {
-    //           type: 'text',
-    //           value: ' 🚨',
-    //         },
-    //       ],
-    //     },
-    //   ],
-    // });
-    // return [visit.SKIP, index + 1];
+    const createNotifierNode = (message, emoji) =>
+      u('paragraph', [
+        u('text', `${emoji} `),
+        u('strong', [u('text', message)]),
+        u('text', ` ${emoji}`),
+      ]);
+
+    const idNode = parent.children[index + 1].children[0];
+    const operationId = idNode.value.match(/"opId(.*)"/)[1];
+    const operationLocation = getOperationLocation(specs, operationId);
+
+    let notifierNode;
+    if (
+      findMatchingDifference(specsDiff.breakingDifferences, operationLocation)
+    ) {
+      notifierNode = createNotifierNode('BREAKING CHANGES', '🚨');
+    } else if (
+      findMatchingDifference(
+        specsDiff.nonBreakingDifferences,
+        operationLocation
+      ) ||
+      findMatchingDifference(
+        specsDiff.unclassifiedDifferences,
+        operationLocation
+      )
+    ) {
+      notifierNode = createNotifierNode('CHANGES', '⚠');
+    }
+
+    if (notifierNode) {
+      parent.children.splice(index + 1, 0, notifierNode);
+      return [visit.SKIP, index + 1];
+    }
   });
 };
 
@@ -83,10 +113,10 @@ module.exports = {
   removeUnwantedNodes,
   wrapOperationsWithDetails,
   insertChangeNotifier,
-  process: (contents, specsDiff) =>
+  process: (contents, specs, specsDiff) =>
     remark()
       .use(removeUnwantedNodes)
       .use(wrapOperationsWithDetails)
-      .use(insertChangeNotifier, specsDiff)
+      .use(insertChangeNotifier, specs, specsDiff)
       .process(contents),
 };

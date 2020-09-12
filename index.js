@@ -65,30 +65,51 @@ async function processSpec(specPath) {
   failOnBreakingChanges(specPath, specsDiff);
 
   let docs = await converter.convert(spec, getConverterOptions());
-  docs = await docsProcessor.process(docs, specsDiff);
+  docs = await docsProcessor.process(
+    docs,
+    Object.values(specVersions).map((spec) => yaml.safeLoad(spec.content)),
+    specsDiff
+  );
+
+  const changesTable = {
+    breaking: {
+      link: '[Breaking](https://www.npmjs.com/package/openapi-diff#breaking)',
+      count: specsDiff.breakingDifferences
+        ? specsDiff.breakingDifferences.length
+        : 0,
+    },
+    nonBreaking: {
+      link:
+        '[Non-breaking](https://www.npmjs.com/package/openapi-diff#non-breaking)',
+      count: specsDiff.nonBreakingDifferences
+        ? specsDiff.nonBreakingDifferences.length
+        : 0,
+    },
+    unclassified: {
+      link:
+        '[Unclassified](https://www.npmjs.com/package/openapi-diff#unclassified)',
+      count: specsDiff.unclassifiedDifferences
+        ? specsDiff.unclassifiedDifferences.length
+        : 0,
+    },
+  };
 
   const comment = `
-# OpenAPI Review Action
+# OpenAPI Review
 
 > **Spec: ${specPath}**
 
 ## OpenAPI Diff
 
+> ⚡ Powered by [openapi-diff](https://bitbucket.org/atlassian/openapi-diff)
+
 ${specsDiff.breakingDifferencesFound ? '🚨 **BREAKING CHANGES** 🚨' : ''}
 
-* Breaking changes: ${
-    specsDiff.breakingDifferences ? specsDiff.breakingDifferences.length : 0
-  }
-* Non-breaking changes: ${
-    specsDiff.nonBreakingDifferences
-      ? specsDiff.nonBreakingDifferences.length
-      : 0
-  }
-* Unclassified changes: ${
-    specsDiff.unclassifiedDifferences
-      ? specsDiff.unclassifiedDifferences.length
-      : 0
-  }
+| Change Classification             | Count                              |
+| --------------------------------- | ---------------------------------- |
+| ${changesTable.breaking.link}     | ${changesTable.breaking.count}     |
+| ${changesTable.nonBreaking.link}  | ${changesTable.nonBreaking.count}  |
+| ${changesTable.unclassified.link} | ${changesTable.unclassified.count} |
 
 <details>
 <summary>Diff</summary>
@@ -97,6 +118,10 @@ ${specsDiff.breakingDifferencesFound ? '🚨 **BREAKING CHANGES** 🚨' : ''}
 ${JSON.stringify(specsDiff, null, 2)}
 \`\`\`
 </details>
+
+## OpenAPI Docs
+
+> ⚡ Powered by [widdershins](https://github.com/Mermade/widdershins)
 
 ${docs}
 `;
