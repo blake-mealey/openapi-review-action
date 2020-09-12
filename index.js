@@ -13,7 +13,7 @@ const converter = require('widdershins');
 const { promisify } = require('util');
 
 function getOctokit() {
-  return github.getOctokit(core.getInput('github-token'));
+  return github.getOctokit(core.getInput('github-token', { required: true }));
 }
 
 function getPullRequest() {
@@ -22,6 +22,18 @@ function getPullRequest() {
 
 function getConverterOptions() {
   return core.getInput('converter-options') || {};
+}
+
+function failOnBreakingChanges(specsDiff) {
+  let shouldFail = core.getInput('fail-on-breaking-changes');
+  if (shouldFail === undefined || shouldFail === null) {
+    shouldFail = true;
+  }
+
+  if (specsDiff.breakingDifferencesFound && shouldFail) {
+    // TODO: improve error message
+    core.setFailed(JSON.stringify(specsDiff, null, 2));
+  }
 }
 
 async function parseFile(specPath) {
@@ -47,6 +59,7 @@ async function processSpec(specPath) {
 
   const specsDiff = await openapiDiff.diffSpecs(specVersions);
   console.log(specsDiff);
+  failOnBreakingChanges(specsDiff);
 
   const comment = `
 > From spec: ${specPath}
@@ -134,7 +147,7 @@ async function main() {
 
   const diff = await getDiff();
 
-  let specPaths = core.getInput('spec-paths');
+  let specPaths = core.getInput('spec-paths', { required: true });
   if (typeof specPaths === 'string') {
     specPaths = [specPaths];
   }
