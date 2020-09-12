@@ -16,6 +16,10 @@ function getOctokit() {
   return github.getOctokit(core.getInput('github-token'));
 }
 
+function getPullRequest() {
+  return github.context.payload.pull_request;
+}
+
 function getConverterOptions() {
   return core.getInput('converter-options') || {};
 }
@@ -40,17 +44,18 @@ async function processSpec(specPath) {
   // console.log('\n' + docs + '\n');
 
   await getOctokit().issues.createComment({
-    ...github.context.repo,
-    issue_number: github.context.payload.pull_request.number,
+    owner: getPullRequest().base.repo.owner.login,
+    repo: getPullRequest().base.repo.name,
+    issue_number: getPullRequest().number,
     body: docs,
   });
 }
 
 async function getDiff() {
   const prDiff = await getOctokit().pulls.get({
-    owner: github.context.payload.repository.owner.name,
-    repo: github.context.payload.repository.name,
-    pull_number: github.context.payload.pull_request.number,
+    owner: getPullRequest().base.repo.owner.login,
+    repo: getPullRequest().base.repo.name,
+    pull_number: getPullRequest().number,
     mediaType: { format: 'diff' },
   });
 
@@ -68,18 +73,35 @@ function didFileChange(diff, path) {
   );
 }
 
+async function getFile(path) {
+  const baseOptions = {
+    path,
+    mediaType: { format: 'raw' },
+  };
+
+  return {
+    base: await getOctokit().repos.getContent({
+      ...baseOptions,
+      owner: getPullRequest().base.repo.owner.login,
+      repo: getPullRequest().base.repo.name,
+      ref: getPullRequest().base.ref,
+    }),
+    head: await getOctokit().repos.getContent({
+      ...baseOptions,
+      owner: getPullRequest().head.repo.owner.login,
+      repo: getPullRequest().head.repo.name,
+      ref: getPullRequest().head.ref,
+    }),
+  };
+}
+
 async function main() {
   if (!github.context.payload.pull_request) {
     return;
   }
 
-  // await getOctokit().repos.getContent({
-  //   owner: github.context.payload.repository.owner.name,
-  //   repo: github.context.payload.repository.name,
-  //   path: '',
-  //   ref: 'master',
-  // });
-  console.log(JSON.stringify(github.context, null, 2));
+  const file = await getFile('fixtures/api-with-examples.json');
+  console.log(file);
 
   const diff = await getDiff();
 
