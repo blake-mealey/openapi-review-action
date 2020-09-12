@@ -101,6 +101,8 @@ async function processSpec(specPath) {
 
 ## OpenAPI Diff
 
+> ⚡ Powered by [openapi-diff](https://bitbucket.org/atlassian/openapi-diff)
+
 ${specsDiff.breakingDifferencesFound ? '🚨 **BREAKING CHANGES** 🚨' : ''}
 
 | Change Classification             | Count                              |
@@ -116,6 +118,10 @@ ${specsDiff.breakingDifferencesFound ? '🚨 **BREAKING CHANGES** 🚨' : ''}
 ${JSON.stringify(specsDiff, null, 2)}
 \`\`\`
 </details>
+
+## OpenAPI Docs
+
+> ⚡ Powered by [widdershins](https://github.com/Mermade/widdershins)
 
 ${docs}
 `;
