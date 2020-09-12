@@ -39,15 +39,34 @@ async function processSpec(specPath) {
   // TODO: Use remark to modify the document in a more robust way
   docs = docs.substring(docs.indexOf('---', 3) + 3);
   docs = docs.replace(/> Scroll down for code samples.*/g, '');
-  docs = `> From spec: ${specPath}` + docs;
 
   // console.log('\n' + docs + '\n');
+
+  const specVersions = await getSpecVersions(specPath);
+  console.log(specVersions);
+
+  const specsDiff = await openapiDiff.diffSpecs(specVersions);
+  console.log(specsDiff);
+
+  const comment = `
+> From spec: ${specPath}
+
+Diff results:
+
+* Breaking changes: ${specsDiff.breakingDifferences.length > 0}
+* Non-breaking changes: ${specsDiff.nonBreakingDifferences.length > 0}
+* Unclassified changes: ${specsDiff.unclassifiedDifferences.length > 0}
+
+Documentation:
+
+${docs}
+  `;
 
   await getOctokit().issues.createComment({
     owner: getPullRequest().base.repo.owner.login,
     repo: getPullRequest().base.repo.name,
     issue_number: getPullRequest().number,
-    body: docs,
+    body: comment,
   });
 }
 
@@ -112,12 +131,6 @@ async function main() {
   if (!github.context.payload.pull_request) {
     return;
   }
-
-  const specVersions = await getSpecVersions('fixtures/api-with-examples.json');
-  console.log(specVersions);
-
-  const specsDiff = await openapiDiff.diffSpecs(specVersions);
-  console.log(specsDiff);
 
   const diff = await getDiff();
 
