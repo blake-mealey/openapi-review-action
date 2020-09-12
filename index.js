@@ -22,7 +22,7 @@ function getPullRequest() {
 
 function getConverterOptions() {
   return {
-    headings: 3,
+    omitHeader: true,
     ...(core.getInput('converter-options') || {}),
   };
 }
@@ -59,7 +59,6 @@ async function processSpec(specPath) {
   let docs = await converter.convert(spec, getConverterOptions());
 
   // TODO: Use remark to modify the document in a more robust way
-  docs = docs.substring(docs.indexOf('---', 3) + 3);
   docs = docs.replace(/> Scroll down for code samples.*/g, '');
   docs = docs.replace(/^<h1.*<\/h1>$/gm, '');
 
