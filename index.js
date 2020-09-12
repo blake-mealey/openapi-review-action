@@ -75,13 +75,7 @@ async function processSpec(specPath) {
 
 ## Diff results:
 
-${
-  specsDiff.breakingDifferencesFound
-    ? `\`\`\`diff
-- !! Breaking changes !!
-\`\`\``
-    : ''
-}
+${specsDiff.breakingDifferencesFound ? '🚨 **Breaking changes** 🚨' : ''}
 
 * Breaking changes: ${
     specsDiff.breakingDifferences ? specsDiff.breakingDifferences.length : 0
