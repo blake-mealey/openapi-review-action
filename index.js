@@ -67,7 +67,7 @@ async function processSpec(specPath) {
   let docs = await converter.convert(spec, getConverterOptions());
   docs = await docsProcessor.process(
     docs,
-    specVersions.map((spec) => yaml.safeLoad(spec.content)),
+    Object.values(specVersions).map((spec) => yaml.safeLoad(spec.content)),
     specsDiff
   );
 
