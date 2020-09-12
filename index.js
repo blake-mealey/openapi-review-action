@@ -66,9 +66,9 @@ async function processSpec(specPath) {
 
 Diff results:
 
-* Breaking changes: ${specsDiff.breakingDifferences.length > 0}
-* Non-breaking changes: ${specsDiff.nonBreakingDifferences.length > 0}
-* Unclassified changes: ${specsDiff.unclassifiedDifferences.length > 0}
+* Breaking changes: ${specsDiff.breakingDifferences?.length ?? 0}
+* Non-breaking changes: ${specsDiff.nonBreakingDifferences?.length ?? 0}
+* Unclassified changes: ${specsDiff.unclassifiedDifferences?.length ?? 0}
 
 Documentation:
 
