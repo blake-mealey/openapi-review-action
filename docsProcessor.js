@@ -83,8 +83,8 @@ const insertChangeNotifier = (specsDiff) => (tree) => {
   });
 };
 
-const fs = require('fs');
-const file = fs.readFileSync('./test.md', { encoding: 'utf-8' });
+// const fs = require('fs');
+// const file = fs.readFileSync('./test.md', { encoding: 'utf-8' });
 
 // const result = remark()
 //   .use(removeUnwantedNodes)
