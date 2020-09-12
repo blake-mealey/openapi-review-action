@@ -27,7 +27,7 @@ function getConverterOptions() {
 function failOnBreakingChanges(specsDiff) {
   let shouldFail = core.getInput('fail-on-breaking-changes');
   console.log('input', shouldFail);
-  if (shouldFail === undefined || shouldFail === null) {
+  if (!shouldFail && shouldFail !== false) {
     shouldFail = true;
     console.log('default', shouldFail);
   }
