@@ -69,7 +69,7 @@ function didFileChange(diff, path) {
 }
 
 async function main() {
-  if (!getPullRequest()) {
+  if (!github.context.payload.pull_request) {
     return;
   }
 
