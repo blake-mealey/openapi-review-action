@@ -6,19 +6,14 @@ const core = require('@actions/core');
 const github = require('@actions/github');
 const yaml = require('js-yaml');
 const glob = require('glob');
-const axios = require('axios');
 const diff = require('what-the-diff');
 const openapiDiff = require('openapi-diff');
 
 const converter = require('widdershins');
 const { promisify } = require('util');
 
-function getPullRequest() {
-  return github.context.payload.pull_request;
-}
-
-function getToken() {
-  return core.getInput('github-token');
+function getOctokit() {
+  return github.getOctokit(core.getInput('github-token'));
 }
 
 function getConverterOptions() {
@@ -44,22 +39,20 @@ async function processSpec(specPath) {
 
   // console.log('\n' + docs + '\n');
 
-  await github.getOctokit(getToken()).issues.createComment({
+  await getOctokit().issues.createComment({
     ...github.context.repo,
-    issue_number: getPullRequest().number,
+    issue_number: github.context.payload.pull_request.number,
     body: docs,
   });
 }
 
 async function getDiff() {
-  const pullRequest = getPullRequest();
-  const prDiff = (
-    await axios.get(`${pullRequest.diff_url}`, {
-      headers: {
-        Authorization: `Bearer ${getToken()}`,
-      },
-    })
-  ).data;
+  const prDiff = await getOctokit().pulls.get({
+    owner: github.context.payload.repository.owner.name,
+    repo: github.context.payload.repository.name,
+    pull_number: github.context.payload.pull_request.number,
+    mediaType: { format: 'diff' },
+  });
 
   return diff.parse(prDiff);
 }
@@ -80,7 +73,13 @@ async function main() {
     return;
   }
 
-  console.log(github.context);
+  // await getOctokit().repos.getContent({
+  //   owner: github.context.payload.repository.owner.name,
+  //   repo: github.context.payload.repository.name,
+  //   path: '',
+  //   ref: 'master',
+  // });
+  console.log(JSON.stringify(github.context, null, 2));
 
   const diff = await getDiff();
 

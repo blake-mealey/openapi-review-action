@@ -21,7 +21,6 @@
   "dependencies": {
     "@actions/core": "^1.2.5",
     "@actions/github": "^4.0.0",
-    "axios": "^0.20.0",
     "glob": "^7.1.6",
     "js-yaml": "^3.14.0",
     "what-the-diff": "^0.6.0",
