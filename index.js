@@ -52,13 +52,9 @@ async function processSpec(specPath) {
   docs = docs.substring(docs.indexOf('---', 3) + 3);
   docs = docs.replace(/> Scroll down for code samples.*/g, '');
 
-  // console.log('\n' + docs + '\n');
-
   const specVersions = await getSpecVersions(specPath.replace(/^\.\//, ''));
-  console.log(specVersions);
 
   const specsDiff = await openapiDiff.diffSpecs(specVersions);
-  console.log(specsDiff);
   failOnBreakingChanges(specsDiff);
 
   const comment = `
@@ -66,9 +62,19 @@ async function processSpec(specPath) {
 
 Diff results:
 
-* Breaking changes: ${specsDiff.breakingDifferences?.length ?? 0}
-* Non-breaking changes: ${specsDiff.nonBreakingDifferences?.length ?? 0}
-* Unclassified changes: ${specsDiff.unclassifiedDifferences?.length ?? 0}
+* Breaking changes: ${
+    specsDiff.breakingDifferences ? specsDiff.breakingDifferences.length : 0
+  }
+* Non-breaking changes: ${
+    specsDiff.nonBreakingDifferences
+      ? specsDiff.nonBreakingDifferences.length
+      : 0
+  }
+* Unclassified changes: ${
+    specsDiff.unclassifiedDifferences
+      ? specsDiff.unclassifiedDifferences.length
+      : 0
+  }
 
 Documentation:
 
