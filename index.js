@@ -24,21 +24,22 @@ function getConverterOptions() {
   return core.getInput('converter-options') || {};
 }
 
-function failOnBreakingChanges(specsDiff) {
+function failOnBreakingChanges(specPath, specsDiff) {
   let shouldFail = core.getInput('fail-on-breaking-changes');
-  console.log('input', shouldFail);
   if (!shouldFail && shouldFail !== false) {
     shouldFail = true;
-    console.log('default', shouldFail);
   }
 
-  console.log(
-    'specsDiff.breakingDifferencesFound',
-    specsDiff.breakingDifferencesFound
-  );
   if (specsDiff.breakingDifferencesFound && shouldFail) {
-    // TODO: improve error message
-    core.setFailed(JSON.stringify(specsDiff, null, 2));
+    core.setFailed(
+      new Error(
+        `Breaking changes were found in ${specPath}:\n${JSON.stringify(
+          specsDiff,
+          null,
+          2
+        )}`
+      )
+    );
   }
 }
 
@@ -61,7 +62,7 @@ async function processSpec(specPath) {
   const specVersions = await getSpecVersions(specPath.replace(/^\.\//, ''));
 
   const specsDiff = await openapiDiff.diffSpecs(specVersions);
-  failOnBreakingChanges(specsDiff);
+  failOnBreakingChanges(specPath, specsDiff);
 
   const comment = `
 > From spec: ${specPath}
