@@ -1,6 +1,7 @@
 'use strict';
 
 const { promises: fs } = require('fs');
+const { promisify } = require('util');
 
 const core = require('@actions/core');
 const github = require('@actions/github');
@@ -8,10 +9,8 @@ const yaml = require('js-yaml');
 const glob = require('glob');
 const diff = require('what-the-diff');
 const openapiDiff = require('openapi-diff');
-const remark = require('remark');
-
 const converter = require('widdershins');
-const { promisify } = require('util');
+
 const docsProcessor = require('./docsProcessor');
 
 function getOctokit() {
@@ -130,7 +129,8 @@ function didFileChange(diff, path) {
 
   return diff.find(
     (file) =>
-      makeRelative(file.oldPath) === path || makeRelative(file.newPath) === path
+      (file.oldPath && makeRelative(file.oldPath) === path) ||
+      (file.newPath && makeRelative(file.newPath) === path)
   );
 }
 
