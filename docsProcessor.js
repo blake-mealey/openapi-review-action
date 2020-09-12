@@ -44,8 +44,6 @@ const wrapOperationsWithDetails = () => (tree) => {
 };
 
 function getOperationLocation(specs, operationId) {
-  console.log(specs);
-  console.log('find operation location', operationId);
   for (const spec of specs) {
     for (const [route, operations] of Object.entries(spec.paths)) {
       for (const [method, operation] of Object.entries(operations)) {
@@ -61,13 +59,15 @@ function findMatchingDifference(diffs, operationLocation) {
   if (!diffs) {
     return;
   }
-  console.log(diffs);
-  console.log('find matching diff');
 
-  return diffs.find((diff) =>
-    diff.sourceSpecEntityDetails.find(({ location }) =>
-      location.startsWith(operationLocation)
-    )
+  return diffs.find(
+    (diff) =>
+      diff.sourceSpecEntityDetails.find(({ location }) =>
+        location.startsWith(operationLocation)
+      ) ||
+      diff.destinationSpecEntityDetails.find(({ location }) =>
+        location.startsWith(operationLocation)
+      )
   );
 }
 
@@ -83,7 +83,6 @@ const insertChangeNotifier = (specs, specsDiff) => (tree) => {
     const idNode = parent.children[index + 1].children[0];
     const operationId = idNode.value.match(/"opId(.*)"/)[1];
     const operationLocation = getOperationLocation(specs, operationId);
-    console.log('location', operationLocation);
 
     let notifierNode;
     if (
@@ -100,7 +99,6 @@ const insertChangeNotifier = (specs, specsDiff) => (tree) => {
         operationLocation
       )
     ) {
-      console.log('non breaking change notifier');
       notifierNode = createNotifierNode('CHANGES', '⚠');
     }
 
