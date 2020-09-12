@@ -23,6 +23,10 @@
     "@actions/github": "^4.0.0",
     "glob": "^7.1.6",
     "js-yaml": "^3.14.0",
+    "remark": "^12.0.1",
+    "unist-util-find": "^1.0.1",
+    "unist-util-is": "^4.0.2",
+    "unist-util-visit": "^2.0.3",
     "what-the-diff": "^0.6.0",
     "widdershins": "^4.0.1"
   },

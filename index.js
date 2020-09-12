@@ -1,6 +1,7 @@
 'use strict';
 
 const { promises: fs } = require('fs');
+const { promisify } = require('util');
 
 const core = require('@actions/core');
 const github = require('@actions/github');
@@ -8,9 +9,9 @@ const yaml = require('js-yaml');
 const glob = require('glob');
 const diff = require('what-the-diff');
 const openapiDiff = require('openapi-diff');
-
 const converter = require('widdershins');
-const { promisify } = require('util');
+
+const docsProcessor = require('./docsProcessor');
 
 function getOctokit() {
   return github.getOctokit(core.getInput('github-token', { required: true }));
@@ -59,31 +60,12 @@ async function processSpec(specPath) {
 
   const spec = await parseFile(specPath);
 
-  let docs = await converter.convert(spec, getConverterOptions());
-
-  // TODO: Use remark to modify the document in a more robust way
-  docs = docs.replace(/> Scroll down for.*/g, '');
-  docs = docs.replace(/^<h1.*<\/h1>$/gm, '');
-
-  // TODO: Find each section and wrap modify it:
-  /*
-      ## Summary
-
-      (if breaking changes)     🚨 **BREAKING CHANGES** 🚨
-      (if nonbreaking changes)  ⚠ **CHANGES** ⚠
-
-      <details>
-      <summary>Documentation</summary>
-
-      ...
-
-      </details>
-  */
-
   const specVersions = await getSpecVersions(specPath.replace(/^\.\//, ''));
-
   const specsDiff = await openapiDiff.diffSpecs(specVersions);
   failOnBreakingChanges(specPath, specsDiff);
+
+  let docs = await converter.convert(spec, getConverterOptions());
+  docs = await docsProcessor.process(docs, specsDiff);
 
   const comment = `
 # OpenAPI Review Action
@@ -147,7 +129,8 @@ function didFileChange(diff, path) {
 
   return diff.find(
     (file) =>
-      makeRelative(file.oldPath) === path || makeRelative(file.newPath) === path
+      (file.oldPath && makeRelative(file.oldPath) === path) ||
+      (file.newPath && makeRelative(file.newPath) === path)
   );
 }
 
