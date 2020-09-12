@@ -22,11 +22,10 @@ const removeUnwantedNodes = () => (tree) => {
 };
 
 const wrapOperationsWithDetails = () => (tree) => {
-  // console.log(JSON.stringify(tree.children[1], null, 2));
   visit(tree, { type: 'heading', depth: 2 }, (node, index, parent) => {
     parent.children.splice(index + 1, 0, {
       type: 'html',
-      value: '<details>\n<summary>Documentation:</summary>',
+      value: '<details>\n<summary>Docs</summary>',
     });
 
     let nextIndex = parent.children
@@ -48,50 +47,37 @@ const wrapOperationsWithDetails = () => (tree) => {
 const insertChangeNotifier = (specsDiff) => (tree) => {
   visit(tree, { type: 'heading', depth: 2 }, (node, index, parent) => {
     // TODO: Determine which (if any) change notifier to insert
-
     // ⚠ **CHANGES** ⚠
-
-    parent.children.splice(index + 1, 0, {
-      type: 'paragraph',
-      children: [
-        {
-          type: 'paragraph',
-          children: [
-            {
-              type: 'text',
-              value: '🚨 ',
-            },
-            {
-              type: 'strong',
-              children: [
-                {
-                  type: 'text',
-                  value: 'BREAKING CHANGES',
-                },
-              ],
-            },
-            {
-              type: 'text',
-              value: ' 🚨',
-            },
-          ],
-        },
-      ],
-    });
-
-    return [visit.SKIP, index + 1];
+    // parent.children.splice(index + 1, 0, {
+    //   type: 'paragraph',
+    //   children: [
+    //     {
+    //       type: 'paragraph',
+    //       children: [
+    //         {
+    //           type: 'text',
+    //           value: '🚨 ',
+    //         },
+    //         {
+    //           type: 'strong',
+    //           children: [
+    //             {
+    //               type: 'text',
+    //               value: 'BREAKING CHANGES',
+    //             },
+    //           ],
+    //         },
+    //         {
+    //           type: 'text',
+    //           value: ' 🚨',
+    //         },
+    //       ],
+    //     },
+    //   ],
+    // });
+    // return [visit.SKIP, index + 1];
   });
 };
-
-// const fs = require('fs');
-// const file = fs.readFileSync('./test.md', { encoding: 'utf-8' });
-
-// const result = remark()
-//   .use(removeUnwantedNodes)
-//   .use(wrapOperationsWithDetails)
-//   .use(insertChangeNotifier)
-//   .processSync(file);
-// console.log(result.contents);
 
 module.exports = {
   removeUnwantedNodes,
