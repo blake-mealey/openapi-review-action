@@ -6,22 +6,47 @@ const core = require('@actions/core');
 const github = require('@actions/github');
 const yaml = require('js-yaml');
 const glob = require('glob');
-const axios = require('axios');
 const diff = require('what-the-diff');
+const openapiDiff = require('openapi-diff');
 
 const converter = require('widdershins');
 const { promisify } = require('util');
+
+function getOctokit() {
+  return github.getOctokit(core.getInput('github-token', { required: true }));
+}
 
 function getPullRequest() {
   return github.context.payload.pull_request;
 }
 
-function getToken() {
-  return core.getInput('github-token');
+function getConverterOptions() {
+  return {
+    omitHeader: true,
+    tocSummary: true,
+    codeSamples: false,
+    language_tabs: [],
+    ...(core.getInput('converter-options') || {}),
+  };
 }
 
-function getConverterOptions() {
-  return core.getInput('converter-options') || {};
+function failOnBreakingChanges(specPath, specsDiff) {
+  let shouldFail = core.getInput('fail-on-breaking-changes');
+  if (!shouldFail && shouldFail !== false) {
+    shouldFail = true;
+  }
+
+  if (specsDiff.breakingDifferencesFound && shouldFail) {
+    core.setFailed(
+      new Error(
+        `Breaking changes were found in ${specPath}:\n${JSON.stringify(
+          specsDiff,
+          null,
+          2
+        )}`
+      )
+    );
+  }
 }
 
 async function parseFile(specPath) {
@@ -37,26 +62,78 @@ async function processSpec(specPath) {
   let docs = await converter.convert(spec, getConverterOptions());
 
   // TODO: Use remark to modify the document in a more robust way
-  docs = docs.substring(docs.indexOf('---', 3) + 3);
-  docs = docs.replace(/> Scroll down for code samples.*/g, '');
-  docs = `> From spec: ${specPath}` + docs;
+  docs = docs.replace(/> Scroll down for.*/g, '');
+  docs = docs.replace(/^<h1.*<\/h1>$/gm, '');
 
-  // console.log('\n' + docs + '\n');
+  // TODO: Find each section and wrap modify it:
+  /*
+      ## Summary
 
-  await github.getOctokit(getToken()).issues.createComment({
-    ...github.context.repo,
+      (if breaking changes)     🚨 **BREAKING CHANGES** 🚨
+      (if nonbreaking changes)  ⚠ **CHANGES** ⚠
+
+      <details>
+      <summary>Documentation</summary>
+
+      ...
+
+      </details>
+  */
+
+  const specVersions = await getSpecVersions(specPath.replace(/^\.\//, ''));
+
+  const specsDiff = await openapiDiff.diffSpecs(specVersions);
+  failOnBreakingChanges(specPath, specsDiff);
+
+  const comment = `
+# OpenAPI Review Action
+
+> **Spec: ${specPath}**
+
+## OpenAPI Diff
+
+${specsDiff.breakingDifferencesFound ? '🚨 **BREAKING CHANGES** 🚨' : ''}
+
+* Breaking changes: ${
+    specsDiff.breakingDifferences ? specsDiff.breakingDifferences.length : 0
+  }
+* Non-breaking changes: ${
+    specsDiff.nonBreakingDifferences
+      ? specsDiff.nonBreakingDifferences.length
+      : 0
+  }
+* Unclassified changes: ${
+    specsDiff.unclassifiedDifferences
+      ? specsDiff.unclassifiedDifferences.length
+      : 0
+  }
+
+<details>
+<summary>Diff</summary>
+
+\`\`\`json
+${JSON.stringify(specsDiff, null, 2)}
+\`\`\`
+</details>
+
+${docs}
+`;
+
+  await getOctokit().issues.createComment({
+    owner: getPullRequest().base.repo.owner.login,
+    repo: getPullRequest().base.repo.name,
     issue_number: getPullRequest().number,
-    body: docs,
+    body: comment,
   });
 }
 
 async function getDiff() {
-  const pullRequest = getPullRequest();
   const prDiff = (
-    await axios.get(`${pullRequest.diff_url}`, {
-      headers: {
-        Authorization: `Bearer ${getToken()}`,
-      },
+    await getOctokit().pulls.get({
+      owner: getPullRequest().base.repo.owner.login,
+      repo: getPullRequest().base.repo.name,
+      pull_number: getPullRequest().number,
+      mediaType: { format: 'diff' },
     })
   ).data;
 
@@ -74,15 +151,47 @@ function didFileChange(diff, path) {
   );
 }
 
+async function getSpecVersions(path) {
+  const baseOptions = {
+    path,
+    mediaType: { format: 'raw' },
+  };
+
+  async function getVersion(version) {
+    const pr = getPullRequest()[version];
+    const content = (
+      await getOctokit().repos.getContent({
+        ...baseOptions,
+        owner: pr.repo.owner.login,
+        repo: pr.repo.name,
+        ref: pr.ref,
+      })
+    ).data;
+
+    const spec = yaml.safeLoad(content);
+
+    return {
+      content,
+      location: `${version}/${path}`,
+      format:
+        'swagger' in spec ? 'swagger2' : 'openapi' in spec ? 'openapi3' : null,
+    };
+  }
+
+  return {
+    sourceSpec: await getVersion('base'),
+    destinationSpec: await getVersion('head'),
+  };
+}
+
 async function main() {
-  if (!getPullRequest()) {
+  if (!github.context.payload.pull_request) {
     return;
   }
 
   const diff = await getDiff();
-  console.log(diff);
 
-  let specPaths = core.getInput('spec-paths');
+  let specPaths = core.getInput('spec-paths', { required: true });
   if (typeof specPaths === 'string') {
     specPaths = [specPaths];
   }
