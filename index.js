@@ -75,29 +75,36 @@ function didFileChange(diff, path) {
   );
 }
 
-async function getFile(path) {
+async function getSpecVersions(path) {
   const baseOptions = {
     path,
     mediaType: { format: 'raw' },
   };
 
+  async function getVersion(version) {
+    const pr = getPullRequest()[version];
+    const content = (
+      await getOctokit().repos.getContent({
+        ...baseOptions,
+        owner: pr.repo.owner.login,
+        repo: pr.repo.name,
+        ref: pr.ref,
+      })
+    ).data;
+
+    const spec = parseFile(content);
+
+    return {
+      content,
+      location: `${version}/${path}`,
+      format:
+        'swagger' in spec ? 'swagger2' : 'openapi' in spec ? 'openapi3' : null,
+    };
+  }
+
   return {
-    base: (
-      await getOctokit().repos.getContent({
-        ...baseOptions,
-        owner: getPullRequest().base.repo.owner.login,
-        repo: getPullRequest().base.repo.name,
-        ref: getPullRequest().base.ref,
-      })
-    ).data,
-    head: (
-      await getOctokit().repos.getContent({
-        ...baseOptions,
-        owner: getPullRequest().head.repo.owner.login,
-        repo: getPullRequest().head.repo.name,
-        ref: getPullRequest().head.ref,
-      })
-    ).data,
+    sourceSpec: getVersion('head'),
+    destinationSpec: getVersion('base'),
   };
 }
 
@@ -106,8 +113,11 @@ async function main() {
     return;
   }
 
-  const file = await getFile('fixtures/api-with-examples.json');
-  console.log(file);
+  const specVersions = await getSpecVersions('fixtures/api-with-examples.json');
+  console.log(specVersions);
+
+  const specsDiff = await openapiDiff.diffSpecs(specVersions);
+  console.log(specsDiff);
 
   const diff = await getDiff();
 
