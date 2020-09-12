@@ -11,11 +11,11 @@ inputs:
   converter-options:
     description: Optionally pass options to the widdershins OpenAPI docs converter
     required: false
-    default: {}
+    default: '{}'
   fail-on-breaking-changes:
     description: Whether or not to fail
     required: false
-    default: true
+    default: 'true'
 runs:
   using: node12
   main: dist/index.js
