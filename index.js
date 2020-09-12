@@ -62,8 +62,23 @@ async function processSpec(specPath) {
   let docs = await converter.convert(spec, getConverterOptions());
 
   // TODO: Use remark to modify the document in a more robust way
-  docs = docs.replace(/> Scroll down for code samples.*/g, '');
+  docs = docs.replace(/> Scroll down for.*/g, '');
   docs = docs.replace(/^<h1.*<\/h1>$/gm, '');
+
+  // TODO: Find each section and wrap modify it:
+  /*
+      ## Summary
+
+      (if breaking changes)     🚨 **BREAKING CHANGES** 🚨
+      (if nonbreaking changes)  ⚠ **CHANGES** ⚠
+
+      <details>
+      <summary>Documentation</summary>
+
+      ...
+
+      </details>
+  */
 
   const specVersions = await getSpecVersions(specPath.replace(/^\.\//, ''));
 
@@ -75,9 +90,9 @@ async function processSpec(specPath) {
 
 > **Spec: ${specPath}**
 
-## Diff results:
+## OpenAPI Diff
 
-${specsDiff.breakingDifferencesFound ? '🚨 **Breaking changes** 🚨' : ''}
+${specsDiff.breakingDifferencesFound ? '🚨 **BREAKING CHANGES** 🚨' : ''}
 
 * Breaking changes: ${
     specsDiff.breakingDifferences ? specsDiff.breakingDifferences.length : 0
@@ -94,17 +109,15 @@ ${specsDiff.breakingDifferencesFound ? '🚨 **Breaking changes** 🚨' : ''}
   }
 
 <details>
-<summary>Details</summary>
+<summary>Diff</summary>
 
 \`\`\`json
 ${JSON.stringify(specsDiff, null, 2)}
 \`\`\`
 </details>
 
-## Documentation:
-
 ${docs}
-  `;
+`;
 
   await getOctokit().issues.createComment({
     owner: getPullRequest().base.repo.owner.login,
