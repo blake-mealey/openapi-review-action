@@ -92,7 +92,7 @@ async function getSpecVersions(path) {
       })
     ).data;
 
-    const spec = await parseFile(content);
+    const spec = yaml.safeLoad(content);
 
     return {
       content,
