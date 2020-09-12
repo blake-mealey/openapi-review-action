@@ -92,7 +92,7 @@ async function getSpecVersions(path) {
       })
     ).data;
 
-    const spec = parseFile(content);
+    const spec = await parseFile(content);
 
     return {
       content,
