@@ -26,10 +26,16 @@ function getConverterOptions() {
 
 function failOnBreakingChanges(specsDiff) {
   let shouldFail = core.getInput('fail-on-breaking-changes');
+  console.log('input', shouldFail);
   if (shouldFail === undefined || shouldFail === null) {
     shouldFail = true;
+    console.log('default', shouldFail);
   }
 
+  console.log(
+    'specsDiff.breakingDifferencesFound',
+    specsDiff.breakingDifferencesFound
+  );
   if (specsDiff.breakingDifferencesFound && shouldFail) {
     // TODO: improve error message
     core.setFailed(JSON.stringify(specsDiff, null, 2));
