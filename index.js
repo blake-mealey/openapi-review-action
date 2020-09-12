@@ -54,7 +54,7 @@ async function processSpec(specPath) {
 
   // console.log('\n' + docs + '\n');
 
-  const specVersions = await getSpecVersions(specPath);
+  const specVersions = await getSpecVersions(specPath.replace(/^\.\//, ''));
   console.log(specVersions);
 
   const specsDiff = await openapiDiff.diffSpecs(specVersions);
