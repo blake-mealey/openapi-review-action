@@ -21,7 +21,10 @@ function getPullRequest() {
 }
 
 function getConverterOptions() {
-  return core.getInput('converter-options') || {};
+  return {
+    headings: 3,
+    ...(core.getInput('converter-options') || {}),
+  };
 }
 
 function failOnBreakingChanges(specPath, specsDiff) {
@@ -58,6 +61,7 @@ async function processSpec(specPath) {
   // TODO: Use remark to modify the document in a more robust way
   docs = docs.substring(docs.indexOf('---', 3) + 3);
   docs = docs.replace(/> Scroll down for code samples.*/g, '');
+  docs = docs.replace(/^<h1.*<\/h1>$/g, '');
 
   const specVersions = await getSpecVersions(specPath.replace(/^\.\//, ''));
 
@@ -65,9 +69,19 @@ async function processSpec(specPath) {
   failOnBreakingChanges(specPath, specsDiff);
 
   const comment = `
-> From spec: ${specPath}
+# OpenAPI Review Action
 
-Diff results:
+> **Spec: ${specPath}**
+
+## Diff results:
+
+${
+  specsDiff.breakingDifferencesFound
+    ? ```diff
+- !! Breaking changes !!
+```
+    : ''
+}
 
 * Breaking changes: ${
     specsDiff.breakingDifferences ? specsDiff.breakingDifferences.length : 0
@@ -83,7 +97,15 @@ Diff results:
       : 0
   }
 
-Documentation:
+<details>
+<summary>Details</summary>
+
+\`\`\`json
+${JSON.stringify(specsDiff, null, 2)}
+\`\`\`
+</details>
+
+## Documentation:
 
 ${docs}
   `;
