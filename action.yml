@@ -1,6 +1,6 @@
-name: OpenAPI Docs in PR
+name: OpenAPI Review
 author: Blake Mealey
-description: View your OpenAPI Docs as a comment in your PR
+description: Review OpenAPI spec diffs and docs in your PRs
 inputs:
   spec-paths:
     description: The paths to the OpenAPI specs to process (single glob or array of globs)

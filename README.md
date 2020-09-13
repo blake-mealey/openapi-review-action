@@ -2,16 +2,28 @@
 
 A GitHub action for reviewing changes to your OpenAPI specs.
 
-This action supports the `pull_request` event and posts comments to PRs which make changes to your
-OpenAPI specs which help your reviewers ensure your specs are in a good condition.
+This action posts a comment to your PR whenever you make a change to an OpenAPI spec file, with
+helpful details for your reviewers to catch more potential problems and give better feedback!
+
+- Review your spec's diff to make sure you aren't introducing breaking changes for your users
+- Make sure your API's docs are complete and up to snuff before accepting a change
+
+⚡ Powered by [openapi-diff](https://bitbucket.org/atlassian/openapi-diff) and
+[widdershins](https://github.com/Mermade/widdershins)!
+
+Supported events:
+
+- `pull_request`
 
 ## Example usage
 
 ```yaml
-uses: actions/openapi-docs-in-pr-action@v1.0.0
-with:
-  spec-paths: ./specs/*.yaml
-  github-token: ${{ secrets.GITHUB_TOKEN }}
+# Make sure you checkout your repo before first!
+- uses: actions/checkout@v1
+- uses: blake-mealey/openapi-review-action@v1
+  with:
+    spec-paths: ./specs/*.yaml
+    github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ## Inputs
@@ -42,6 +54,11 @@ variable.
 ```yml
 github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
+
+### fail-on-breaking-changes (optional)
+
+Defaults to true. Whether or not the action should report a failure if the openapi-diff report found
+breaking changes.
 
 ### converter-options (optional)
 
