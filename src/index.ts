@@ -17,12 +17,12 @@ class GitClient implements IGitClient {
     );
   }
 
-  async getPullRequestDiff({ owner, repo, number }): Promise<string> {
+  async getPullRequestDiff({ owner, repo, pullRequestId }): Promise<string> {
     const result = (
       await this.octoKit.pulls.get({
         owner,
         repo,
-        pull_number: number,
+        pull_number: pullRequestId,
         mediaType: { format: "diff" },
       })
     ).data;
@@ -45,13 +45,13 @@ class GitClient implements IGitClient {
   async createPullRequestComment({
     owner,
     repo,
-    number,
+    pullRequestId,
     comment,
   }): Promise<void> {
     await this.octoKit.issues.createComment({
       owner,
       repo,
-      issue_number: number,
+      issue_number: pullRequestId,
       body: comment,
     });
   }
@@ -77,8 +77,21 @@ class IoManager implements IIoManager {
 }
 
 function createContext(): IContext {
+  const pullRequest = context.payload.pull_request;
   return {
-    pullRequest: context.payload.pull_request as any,
+    pullRequest: {
+      id: pullRequest.number.toString(),
+      base: {
+        ref: pullRequest.base.ref,
+        repoOwner: pullRequest.base.repo.owner.login,
+        repoName: pullRequest.base.repo.name,
+      },
+      head: {
+        ref: pullRequest.head.ref,
+        repoOwner: pullRequest.head.repo.owner.login,
+        repoName: pullRequest.head.repo.name,
+      },
+    },
   };
 }
 
