@@ -21,22 +21,12 @@
   "dependencies": {
     "@actions/core": "^1.2.5",
     "@actions/github": "^4.0.0",
-    "glob": "^7.1.6",
-    "js-yaml": "^3.14.0",
-    "openapi-review-lib": "0.0.1",
-    "remark": "^12.0.1",
-    "unist-builder": "^2.0.3",
-    "unist-util-find": "^1.0.1",
-    "unist-util-is": "^4.0.2",
-    "unist-util-visit": "^2.0.3",
-    "what-the-diff": "^0.6.0",
-    "widdershins": "^4.0.1"
+    "openapi-review-lib": "0.0.1"
   },
   "private": true,
   "devDependencies": {
     "@zeit/ncc": "^0.22.3",
-    "husky": "^4.3.0",
-    "openapi-diff": "^0.23.3"
+    "husky": "^4.3.0"
   },
   "husky": {
     "hooks": {}
