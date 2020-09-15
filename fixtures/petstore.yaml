@@ -18,7 +18,7 @@ paths:
         - name: limit
           in: query
           description: How many items to return at one time (max 100)
-          required: false
+          required: true
           schema:
             type: integer
             format: int32
@@ -68,6 +68,8 @@ paths:
           schema:
             type: string
       responses:
+        '409':
+          description: Pet ID used to exist but has been deleted
         '200':
           description: Expected response to a valid request
           content:
