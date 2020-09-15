@@ -11,5 +11,5 @@ jobs:
         id: review_oas
         uses: ./
         with:
-          spec-paths: ./fixtures/*.@(json|yaml|yml)
+          spec-paths: ./fixtures/api-with-examples.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
