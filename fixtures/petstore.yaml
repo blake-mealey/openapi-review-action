@@ -68,7 +68,7 @@ paths:
           schema:
             type: string
       responses:
-        '409':
+        '410':
           description: Pet ID used to exist but has been deleted
         '200':
           description: Expected response to a valid request
