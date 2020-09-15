@@ -59,15 +59,6 @@
             }
           }
         }
-      },
-      "post": {
-        "operationId": "createVersions",
-        "summary": "Create API versions",
-        "responses": {
-          "200": {
-            "description": "200 response"
-          }
-        }
       }
     },
     "/v2": {
