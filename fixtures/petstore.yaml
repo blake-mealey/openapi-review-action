@@ -18,7 +18,7 @@ paths:
         - name: limit
           in: query
           description: How many items to return at one time (max 100)
-          required: false
+          required: true
           schema:
             type: integer
             format: int32
@@ -30,10 +30,6 @@ paths:
               description: A link to the next page of responses
               schema:
                 type: string
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Pets'
         default:
           description: unexpected error
           content:
@@ -68,6 +64,8 @@ paths:
           schema:
             type: string
       responses:
+        '410':
+          description: Pet ID used to exist but has been deleted
         '200':
           description: Expected response to a valid request
           content:
